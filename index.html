@@ -521,6 +521,7 @@ seed();
 const state = { user:null, route:'dashboard', cart: DB.get('cart',{}) };
 
 /* ---------------- AUTH ---------------- */
+// Memisahkan logika pengecekan dari logika perubahan State/UI
 function isLocalSessionValid(sessionData) {
   if (!sessionData || !sessionData.userId) return false;
   
