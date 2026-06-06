@@ -521,29 +521,50 @@ seed();
 const state = { user:null, route:'dashboard', cart: DB.get('cart',{}) };
 
 /* ---------------- AUTH ---------------- */
-function checkLogin(){
+function isLocalSessionValid(sessionData) {
+  if (!sessionData || !sessionData.userId) return false;
+  
+  const timeoutMs = (DB.get('settings').security?.sessionTimeout || 60) * 60 * 1000;
+  const isExpired = Date.now() - (sessionData.loginAt || 0) > timeoutMs;
+  
+  return !isExpired;
+}
+
+function initUserSession() {
   const s = session.get();
-  if(s && s.userId){
-    const users = DB.get('users',[]);
-    const u = users.find(x=>x.id===s.userId);
-    if(u){
-      const tout = (DB.get('settings').security?.sessionTimeout||60)*60*1000;
-      if(Date.now() - (s.loginAt||0) > tout){
-        session.clear(); state.user=null;
-        toast('Sesi berakhir, silakan login kembali','warn');
-        return false;
-      }
-      state.user = u;
-      // Re-validasi token ke server background tanpa memblokir UI render
-      if(API_ENABLED() && s.token){
-        apiFetch('verifySession', {}).then(r => {
-          if(r && !r.ok){ session.clear(); state.user=null; toast('Sesi tidak valid/berakhir','warn'); renderAuth('login'); }
-        }).catch(()=>{});
-      }
-      return true;
-    }
+
+  if (!isLocalSessionValid(s)) {
+    handleLogout('Sesi berakhir, silakan login kembali');
+    return false;
   }
-  return false;
+
+  // Gunakan data user dari sesi langsung, BUKAN dari daftar seluruh user
+  state.user = s.userData; 
+
+  if (API_ENABLED() && s.token) {
+    verifyTokenSilently(s.token);
+  }
+
+  return true;
+}
+
+async function verifyTokenSilently(token) {
+  try {
+    const response = await apiFetch('verifySession', { token });
+    if (response && !response.ok) {
+      handleLogout('Sesi tidak valid/berakhir dari server');
+    }
+  } catch (error) {
+    // Log error, bedakan antara error jaringan vs error autentikasi
+    console.error('Gagal memverifikasi sesi background:', error);
+  }
+}
+
+function handleLogout(message) {
+  session.clear(); 
+  state.user = null;
+  toast(message, 'warn');
+  renderAuth('login');
 }
 
 async function login(email, password, remember){
