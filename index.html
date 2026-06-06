@@ -8,7 +8,7 @@
 <title>EduFlow LMS - Platform Kursus Online</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%236366f1'/%3E%3Cpath d='M16 24l16-8 16 8-16 8z' fill='white'/%3E%3Cpath d='M22 30v8c0 3 4 6 10 6s10-3 10-6v-8' stroke='white' stroke-width='2.5' fill='none'/%3E%3C/svg%3E" />
 <style>
-/* ============== DESIGN TOKENS (TETAP SAMA) ============== */
+/* ============== DESIGN TOKENS ============== */
 :root{
   --bg:#f6f7fb; --surface:#ffffff; --surface-2:#f1f3f9; --text:#0f172a; --text-soft:#475569; --muted:#94a3b8;
   --border:#e5e7eb; --primary:#6366f1; --primary-2:#8b5cf6; --primary-soft:#eef2ff;
@@ -26,455 +26,788 @@
   --glass:rgba(18,25,49,.6); --glass-border:rgba(255,255,255,.08);
   --sidebar:#070b1a; --sidebar-active:#111a36;
 }
-*{box-sizing:border-box;margin:0;padding:0} html,body{height:100%}
-body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased;overflow-x:hidden;}
-a{color:inherit;text-decoration:none} button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
-input,select,textarea{font:inherit;color:inherit} img{max-width:100%;display:block}
-::-webkit-scrollbar{width:10px;height:10px} ::-webkit-scrollbar-thumb{background:var(--border);border-radius:8px}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  background:var(--bg);color:var(--text);font-size:14px;line-height:1.55;
+  -webkit-font-smoothing:antialiased;overflow-x:hidden;
+}
+a{color:inherit;text-decoration:none}
+button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
+input,select,textarea{font:inherit;color:inherit}
+img{max-width:100%;display:block}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:8px}
+::-webkit-scrollbar-thumb:hover{background:var(--muted)}
 
-.hidden{display:none !important} .flex{display:flex} .grid{display:grid} .gap-1{gap:6px} .gap-2{gap:10px} .gap-3{gap:16px}
-.items-center{align-items:center} .justify-between{justify-content:space-between} .flex-1{flex:1} .flex-col{flex-direction:column}
-.text-sm{font-size:12.5px} .text-lg{font-size:16px} .text-xl{font-size:20px} .font-bold{font-weight:700} .muted{color:var(--muted)}
-.mt-1{margin-top:8px} .mt-2{margin-top:16px} .mt-3{margin-top:24px} .mb-1{margin-bottom:8px} .mb-2{margin-bottom:16px}
+/* ============== UTILITIES ============== */
+.hidden{display:none !important}
+.flex{display:flex}.grid{display:grid}.gap-1{gap:6px}.gap-2{gap:10px}.gap-3{gap:16px}.gap-4{gap:24px}
+.items-center{align-items:center}.justify-between{justify-content:space-between}.justify-center{justify-content:center}
+.flex-1{flex:1}.flex-col{flex-direction:column}.wrap{flex-wrap:wrap}
+.text-sm{font-size:12.5px}.text-lg{font-size:16px}.text-xl{font-size:20px}.text-2xl{font-size:26px}.text-3xl{font-size:34px}
+.font-bold{font-weight:700}.font-semi{font-weight:600}.muted{color:var(--muted)}.soft{color:var(--text-soft)}
+.mt-1{margin-top:8px}.mt-2{margin-top:16px}.mt-3{margin-top:24px}.mt-4{margin-top:32px}
+.mb-1{margin-bottom:8px}.mb-2{margin-bottom:16px}.mb-3{margin-bottom:24px}
+.p-2{padding:12px}.p-3{padding:18px}.p-4{padding:24px}
+.rounded{border-radius:var(--radius)}.rounded-sm{border-radius:var(--radius-sm)}
+.full{width:100%}.center{text-align:center}
+.scroll{overflow:auto}
 .badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:11.5px;font-weight:600;background:var(--surface-2);color:var(--text-soft)}
-.badge.success{background:rgba(16,185,129,.12);color:var(--success)} .badge.warn{background:rgba(245,158,11,.14);color:var(--warning)}
-.badge.danger{background:rgba(239,68,68,.12);color:var(--danger)} .badge.primary{background:var(--primary-soft);color:var(--primary)}
+.badge.success{background:rgba(16,185,129,.12);color:var(--success)}
+.badge.warn{background:rgba(245,158,11,.14);color:var(--warning)}
+.badge.danger{background:rgba(239,68,68,.12);color:var(--danger)}
+.badge.info{background:rgba(14,165,233,.12);color:var(--info)}
+.badge.primary{background:var(--primary-soft);color:var(--primary)}
+
+/* ============== BUTTONS ============== */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 16px;border-radius:var(--radius-sm);font-weight:600;font-size:13.5px;transition:all .18s ease;border:1px solid transparent;white-space:nowrap}
-.btn.primary{background:var(--gradient);color:#fff;box-shadow:var(--shadow-sm)} .btn.ghost{background:var(--surface);color:var(--text);border-color:var(--border)}
-.btn.danger{background:rgba(239,68,68,.1);color:var(--danger)} .btn.sm{padding:7px 12px;font-size:12.5px} .btn.icon{padding:9px;width:38px;height:38px}
-.field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px} .field label{font-size:12.5px;font-weight:600;color:var(--text-soft)}
-.input,.select,.textarea{width:100%;padding:11px 14px;border:1.5px solid var(--border);background:var(--surface);border-radius:var(--radius-sm);outline:none;color:var(--text);}
-.textarea{min-height:90px;resize:vertical} .pw-wrap{position:relative} .pw-wrap button{position:absolute;right:10px;top:50%;transform:translateY(-50%);color:var(--muted);padding:6px}
+.btn:hover{transform:translateY(-1px)}
+.btn:active{transform:translateY(0)}
+.btn.primary{background:var(--gradient);color:#fff;box-shadow:var(--shadow-sm)}
+.btn.primary:hover{box-shadow:0 10px 24px rgba(99,102,241,.35)}
+.btn.ghost{background:var(--surface);color:var(--text);border-color:var(--border)}
+.btn.ghost:hover{background:var(--surface-2)}
+.btn.soft{background:var(--primary-soft);color:var(--primary)}
+.btn.danger{background:rgba(239,68,68,.1);color:var(--danger)}
+.btn.danger:hover{background:var(--danger);color:#fff}
+.btn.sm{padding:7px 12px;font-size:12.5px}
+.btn.icon{padding:9px;width:38px;height:38px}
+.btn:disabled{opacity:.55;cursor:not-allowed;transform:none}
+
+/* ============== FORMS ============== */
+.field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+.field label{font-size:12.5px;font-weight:600;color:var(--text-soft)}
+.input,.select,.textarea{
+  width:100%;padding:11px 14px;border:1.5px solid var(--border);background:var(--surface);
+  border-radius:var(--radius-sm);transition:all .15s;outline:none;color:var(--text);
+}
+.input:focus,.select:focus,.textarea:focus{border-color:var(--primary);box-shadow:0 0 0 4px rgba(99,102,241,.12)}
+.textarea{min-height:90px;resize:vertical;font-family:inherit}
+.input-icon{position:relative}
+.input-icon .input{padding-left:40px}
+.input-icon svg{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--muted)}
+.pw-wrap{position:relative}
+.pw-wrap button{position:absolute;right:10px;top:50%;transform:translateY(-50%);color:var(--muted);padding:6px}
+.checkbox{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:13px}
+.checkbox input{width:16px;height:16px;accent-color:var(--primary)}
 .error-msg{color:var(--danger);font-size:12px;margin-top:4px;display:block}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow-sm)}
+
+/* ============== CARD ============== */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow-sm);transition:all .2s}
+.card.hover:hover{transform:translateY(-3px);box-shadow:var(--shadow)}
+
+/* ============== AUTH ============== */
 .auth-wrap{min-height:100vh;display:grid;grid-template-columns:1fr 1fr;background:var(--bg)}
 .auth-hero{background:var(--gradient);color:#fff;padding:48px;display:flex;flex-direction:column;justify-content:space-between;position:relative;overflow:hidden}
-.auth-form{display:flex;align-items:center;justify-content:center;padding:40px 24px} .auth-card{width:100%;max-width:420px}
+.auth-hero::before,.auth-hero::after{content:"";position:absolute;border-radius:50%;background:rgba(255,255,255,.08)}
+.auth-hero::before{width:500px;height:500px;top:-200px;right:-200px}
+.auth-hero::after{width:340px;height:340px;bottom:-140px;left:-100px}
+.auth-hero > *{position:relative;z-index:1}
+.auth-hero h1{font-size:38px;font-weight:800;line-height:1.15;margin-top:24px}
+.auth-hero p{opacity:.9;margin-top:14px;font-size:15px;max-width:440px}
+.auth-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:32px;max-width:480px}
+.auth-stats div{background:rgba(255,255,255,.13);padding:14px;border-radius:14px;backdrop-filter:blur(6px)}
+.auth-stats b{font-size:22px;display:block}
+.auth-form{display:flex;align-items:center;justify-content:center;padding:40px 24px}
+.auth-card{width:100%;max-width:420px}
+.auth-card h2{font-size:26px;font-weight:800;margin-bottom:6px}
+.auth-card .sub{color:var(--text-soft);margin-bottom:24px}
+.demo-creds{background:var(--primary-soft);border:1px dashed var(--primary);border-radius:var(--radius-sm);padding:12px;margin-top:16px;font-size:12.5px}
+.demo-creds code{background:rgba(0,0,0,.06);padding:2px 6px;border-radius:4px;font-size:12px}
+.divider{display:flex;align-items:center;gap:10px;margin:18px 0;color:var(--muted);font-size:12px}
+.divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--border)}
+@media (max-width:900px){.auth-wrap{grid-template-columns:1fr}.auth-hero{display:none}}
+
+/* ============== APP LAYOUT ============== */
 .app{display:grid;grid-template-columns:260px 1fr;min-height:100vh}
-.sidebar{background:var(--sidebar);color:var(--sidebar-text);padding:18px 12px;position:sticky;top:0;height:100vh;overflow-y:auto;}
+.sidebar{background:var(--sidebar);color:var(--sidebar-text);padding:18px 12px;position:sticky;top:0;height:100vh;overflow-y:auto;transition:transform .25s}
 .sidebar-brand{display:flex;align-items:center;gap:10px;padding:6px 10px 18px;border-bottom:1px solid rgba(255,255,255,.08);margin-bottom:14px}
-.sidebar-section{font-size:10.5px;font-weight:700;text-transform:uppercase;color:#64748b;padding:14px 12px 6px}
-.nav-item{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:10px;font-size:13.5px;font-weight:500;cursor:pointer;margin-bottom:2px}
-.nav-item:hover{background:var(--sidebar-active);color:#fff} .nav-item.active{background:var(--gradient);color:#fff;}
+.sidebar-brand .logo{width:36px;height:36px;border-radius:10px;background:var(--gradient);display:grid;place-items:center;color:#fff;font-weight:800}
+.sidebar-brand b{color:#fff;font-size:16px}
+.sidebar-section{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#64748b;padding:14px 12px 6px}
+.nav-item{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:10px;font-size:13.5px;font-weight:500;color:var(--sidebar-text);cursor:pointer;transition:all .15s;margin-bottom:2px}
+.nav-item:hover{background:var(--sidebar-active);color:#fff}
+.nav-item.active{background:var(--gradient);color:#fff;box-shadow:0 6px 14px rgba(99,102,241,.35)}
+.nav-item svg{width:18px;height:18px;flex-shrink:0}
 .main{display:flex;flex-direction:column;min-width:0}
 .topbar{position:sticky;top:0;z-index:30;background:var(--glass);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;gap:14px}
-.page{padding:24px;max-width:1400px;width:100%;margin:0 auto} .page-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}
-.stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;}
-.stat b{font-size:24px;font-weight:800;display:block} .stat span{color:var(--muted);font-size:12.5px;font-weight:600}
-.grid-2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px} .grid-3{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
-.table{width:100%;border-collapse:collapse;background:var(--surface);font-size:13px} .table th,.table td{padding:12px 14px;text-align:left;border-bottom:1px solid var(--border)}
-.course-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:pointer;display:flex;flex-direction:column}
-.course-thumb{height:150px;background:var(--gradient);display:grid;place-items:center;color:#fff;font-size:42px}
-.course-body{padding:14px;display:flex;flex-direction:column;gap:8px;flex:1}
-.modal-back{position:fixed;inset:0;background:rgba(15,23,42,.55);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;z-index:100;padding:16px;}
-.modal-back.open{display:flex} .modal{background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:560px;max-height:90vh;overflow-y:auto;}
-.modal.lg{max-width:820px} .modal.xl{max-width:1000px}
-.modal-head{padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
-.modal-body{padding:22px} .modal-foot{padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px}
-.toast-wrap{position:fixed;top:20px;right:20px;z-index:200;display:flex;flex-direction:column;gap:10px}
-.toast{background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);padding:14px 16px;border-radius:var(--radius-sm);box-shadow:var(--shadow);animation:slidein .25s;display:flex;gap:10px}
-@keyframes slidein{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
-.empty{padding:50px 20px;text-align:center;color:var(--muted)}
-.list-row{display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid var(--border)}
-.av{width:38px;height:38px;border-radius:50%;background:var(--gradient);color:#fff;display:grid;place-items:center;font-weight:700;flex-shrink:0}
+.topbar h1{font-size:18px;font-weight:700}
+.topbar .search{flex:1;max-width:420px}
+.topbar .avatar{width:36px;height:36px;border-radius:50%;background:var(--gradient);color:#fff;display:grid;place-items:center;font-weight:700;cursor:pointer}
+.page{padding:24px;max-width:1400px;width:100%;margin:0 auto}
+.page-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+.page-head h2{font-size:24px;font-weight:800}
+.page-head p{color:var(--text-soft);margin-top:4px}
 
-/* LOADING OVERLAY (NEW) */
-.loader-overlay{position:fixed;inset:0;background:rgba(15,23,42,0.85);z-index:9999;display:none;flex-direction:column;align-items:center;justify-content:center;color:#fff;backdrop-filter:blur(4px)}
-.loader-overlay.show{display:flex}
-.spinner{width:46px;height:46px;border:4px solid rgba(255,255,255,0.2);border-top-color:var(--primary);border-radius:50%;animation:spin 1s linear infinite;margin-bottom:16px}
-@keyframes spin{to{transform:rotate(360deg)}}
+/* Stats Grid */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;position:relative;overflow:hidden}
+.stat .ic{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;background:var(--primary-soft);color:var(--primary);margin-bottom:10px}
+.stat b{font-size:24px;font-weight:800;display:block;letter-spacing:-.02em}
+.stat span{color:var(--muted);font-size:12.5px;font-weight:600}
+
+/* Grids */
+.grid-2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px}
+.grid-3{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+.grid-4{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}
+
+/* Table */
+.table{width:100%;border-collapse:collapse;background:var(--surface);border-radius:var(--radius);overflow:hidden}
+.table th,.table td{padding:12px 14px;text-align:left;font-size:13px;border-bottom:1px solid var(--border)}
+.table th{background:var(--surface-2);font-weight:700;color:var(--text-soft);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}
+.table tbody tr:hover{background:var(--surface-2)}
+.table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:auto}
+
+/* Course card */
+.course-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:pointer;transition:all .2s;display:flex;flex-direction:column}
+.course-card:hover{transform:translateY(-4px);box-shadow:var(--shadow-lg)}
+.course-thumb{height:150px;background:var(--gradient);display:grid;place-items:center;color:#fff;font-size:42px;font-weight:800;position:relative}
+.course-thumb .cat{position:absolute;top:10px;left:10px;background:rgba(0,0,0,.45);padding:4px 10px;border-radius:8px;font-size:11px;font-weight:600;color:#fff}
+.course-body{padding:14px;display:flex;flex-direction:column;gap:8px;flex:1}
+.course-body h3{font-size:15px;font-weight:700;line-height:1.35}
+.course-body .ins{font-size:12px;color:var(--muted)}
+.course-meta{display:flex;align-items:center;justify-content:space-between;margin-top:auto;padding-top:8px;border-top:1px solid var(--border)}
+.course-meta .price{font-weight:800;color:var(--primary);font-size:15px}
+.rating{display:inline-flex;align-items:center;gap:3px;color:#f59e0b;font-size:12px;font-weight:600}
+
+/* Modal */
+.modal-back{position:fixed;inset:0;background:rgba(15,23,42,.55);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;z-index:100;padding:16px;overflow-y:auto}
+.modal-back.open{display:flex}
+.modal{background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:560px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-lg);animation:popin .2s}
+.modal.lg{max-width:820px}.modal.xl{max-width:1000px}
+.modal-head{padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:var(--surface);z-index:2}
+.modal-head h3{font-size:18px;font-weight:700}
+.modal-body{padding:22px}
+.modal-foot{padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;background:var(--surface)}
+@keyframes popin{from{transform:scale(.94);opacity:0}to{transform:scale(1);opacity:1}}
+
+/* Toast */
+.toast-wrap{position:fixed;top:20px;right:20px;z-index:200;display:flex;flex-direction:column;gap:10px;max-width:340px}
+.toast{background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--primary);padding:14px 16px;border-radius:var(--radius-sm);box-shadow:var(--shadow);animation:slidein .25s;display:flex;gap:10px}
+.toast.success{border-left-color:var(--success)}
+.toast.danger{border-left-color:var(--danger)}
+.toast.warn{border-left-color:var(--warning)}
+@keyframes slidein{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+
+/* Tabs */
+.tabs{display:flex;gap:4px;border-bottom:1.5px solid var(--border);margin-bottom:18px;overflow-x:auto}
+.tabs button{padding:10px 16px;font-weight:600;font-size:13px;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1.5px;white-space:nowrap}
+.tabs button.active{color:var(--primary);border-bottom-color:var(--primary)}
+
+/* Empty */
+.empty{padding:50px 20px;text-align:center;color:var(--muted)}
+.empty svg{width:54px;height:54px;margin-bottom:10px;opacity:.5}
+
+/* Mobile */
+.mobile-bar,.fab,.menu-toggle{display:none}
+.menu-toggle{padding:8px;border-radius:8px}
+@media (max-width:1024px){
+  .app{grid-template-columns:1fr}
+  .sidebar{position:fixed;z-index:50;transform:translateX(-100%);width:280px;box-shadow:var(--shadow-lg)}
+  .sidebar.open{transform:translateX(0)}
+  .menu-toggle{display:inline-flex}
+  .mobile-bar{display:flex;position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:1px solid var(--border);z-index:40;padding:8px;justify-content:space-around;padding-bottom:calc(8px + env(safe-area-inset-bottom))}
+  .mobile-bar button{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10.5px;color:var(--muted);padding:6px 10px;border-radius:10px;font-weight:600;flex:1}
+  .mobile-bar button.active{color:var(--primary);background:var(--primary-soft)}
+  .mobile-bar svg{width:20px;height:20px}
+  .page{padding-bottom:90px}
+  .auth-hero{display:none}
+}
+.backdrop{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:45;display:none}
+.backdrop.open{display:block}
+
+/* Misc */
+.offline-banner{position:fixed;top:0;left:0;right:0;background:var(--warning);color:#fff;text-align:center;padding:8px;font-size:12px;font-weight:600;z-index:300}
+.progress-bar{height:8px;background:var(--surface-2);border-radius:8px;overflow:hidden}
+.progress-bar > div{height:100%;background:var(--gradient);transition:width .35s}
+.list-row{display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid var(--border)}
+.list-row:last-child{border:0}
+.av{width:38px;height:38px;border-radius:50%;background:var(--gradient);color:#fff;display:grid;place-items:center;font-weight:700;flex-shrink:0;font-size:13px}
 </style>
 </head>
 <body>
-<div class="loader-overlay" id="globalLoader"><div class="spinner"></div><b id="loaderText">Memproses...</b></div>
 <div class="toast-wrap" id="toastWrap"></div>
+<div class="backdrop" id="backdrop"></div>
 <div class="modal-back" id="modalBack"></div>
+<div id="offlineBanner" class="offline-banner hidden">⚠ Anda sedang offline — beberapa fitur dibatasi</div>
 <div id="app"></div>
 
 <script>
 /* ============================================================
- * EDUFLOW LMS — FRONTEND ARCHITECTURE (SECURE API SYNC)
+ * EDUFLOW LMS — FRONTEND BERHUBUNGAN DENGAN BACKEND GAS
+ * TAHAP 5: INTEGRASI & WRAPPER APIFETCH
  * ============================================================ */
 
-// ⚠️ WAJIB DIISI: GANTI URL INI DENGAN URL DEPLOYMENT GAS ANDA
-const GAS_URL = "https://script.google.com/macros/s/AKfycbzGq_RexPyeE3_aIPWftipig7Q1ekciVHRjpwSI2NmvrEIOic8AFDLR82HrxTclRwowGg/exec"; 
+// MASUKAN URL DEPLOY GOOGLE APPS SCRIPT ANDA DISINI (Akhiran /exec)
+const GAS_URL = "https://script.google.com/macros/s/AKfycbwnjPuwHbVtkJh5pplsduLZo0ksqQea9IHQxI7zBjqApUeM6sOqltdhxb0R5gzkCuh3sw/exec";
 
-/* ---------------- API & STATE LAYER ---------------- */
-window.APP_DATA = {}; // Global state to replace localStorage
-
-const session = {
-  get(){ try{return JSON.parse(localStorage.getItem('eduflow_auth')||'null');}catch(e){return null;} },
-  set(s){ localStorage.setItem('eduflow_auth', JSON.stringify(s)); },
-  clear(){ localStorage.removeItem('eduflow_auth'); }
-};
-
-// Pengganti localStorage DB
-const DB = {
-  get(key, def){ return APP_DATA[key] !== undefined ? APP_DATA[key] : def; },
-  // set sekarang hanya update UI lokal. Data asli tersimpan di Backend lewat API.
-  setLocal(key, val){ APP_DATA[key] = val; } 
-};
-
-const state = { user:null, route:null, cart: {} };
-
-// Core API Call
-async function apiCall(action, payload = {}) {
-  try {
-    const token = session.get()?.token || '';
-    const response = await fetch(GAS_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // Untuk bypass CORS Preflight Google Script
-      body: JSON.stringify({ action, token, payload })
-    });
-    return await response.json();
-  } catch (e) {
-    console.error("API Error:", e);
-    return { success: false, message: 'Koneksi ke server terputus.' };
+/* ---------------- API FETCH (Exponential Backoff) ---------------- */
+async function apiFetch(action, payload = {}) {
+  let retries = 3;
+  let delay = 1000;
+  
+  while (retries > 0) {
+    try {
+      const res = await fetch(GAS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action, data: payload })
+      });
+      const result = await res.json();
+      return result;
+    } catch (e) {
+      retries--;
+      console.warn(`Fetch gagal, mencoba ulang dalam ${delay}ms...`, e);
+      if (retries === 0) return { ok: false, error: 'Koneksi ke server backend gagal / Timeout. Coba muat ulang.' };
+      await new Promise(r => setTimeout(r, delay));
+      delay *= 2;
+    }
   }
 }
 
-// Global Loader
-function showLoader(txt="Memproses..."){ $('#loaderText').textContent=txt; $('#globalLoader').classList.add('show'); }
-function hideLoader(){ $('#globalLoader').classList.remove('show'); }
+/* ---------------- STATE & DB CACHE LOKAL ---------------- */
+let DB_CACHE = {
+  users: [], courses: [], categories: [], instructors: [],
+  transactions: [], reviews: [], coupons: [], threads: [], 
+  settings: {
+    general:{name:'EduFlow LMS', tagline:'Belajar Tanpa Batas', logo:'🎓'},
+    seo:{title:'EduFlow LMS - Platform Kursus Online',desc:'Belajar skill digital dari para ahli.'},
+    payment:{midtransKey:'',xenditKey:'',stripeKey:'',paypalKey:''},
+    smtp:{host:'',port:587,user:''}, security:{sessionTimeout:60,minPwLen:8}
+  },
+  calendar: [], notifications: [], cart: {}, affiliates: [], memberships: [], broadcasts: []
+};
+
+// Pengganti localStorage yang sinkron agar tidak merusak logika UI yang sudah ada.
+const DB = {
+  get(key, def){ return DB_CACHE[key] !== undefined ? DB_CACHE[key] : def; },
+  set(key, val){ 
+    DB_CACHE[key] = val; 
+    if(key === 'cart' || key === 'theme') {
+      localStorage.setItem('eduflow_'+key, JSON.stringify(val));
+    }
+  }
+};
+
+const session = {
+  get(){ try{return JSON.parse(localStorage.getItem('eduflow_session')||'null');}catch(e){return null;} },
+  set(s){ localStorage.setItem('eduflow_session', JSON.stringify(s)); },
+  clear(){ localStorage.removeItem('eduflow_session'); }
+};
+
+const state = {
+  user: null,
+  route: 'dashboard',
+  cart: (()=>{try{return JSON.parse(localStorage.getItem('eduflow_cart'))||{};}catch(e){return {};}})(),
+};
+
+// Mengambil Cache Theme dari LocalStorage agar visual tidak patah
+document.documentElement.dataset.theme = (()=>{try{return JSON.parse(localStorage.getItem('eduflow_theme'))||'light';}catch(e){return 'light';}})();
+
+/* ---------------- SINKRONISASI DATA UTAMA ---------------- */
+async function syncWithBackend() {
+  const s = session.get();
+  const res = await apiFetch('init', { userId: s ? s.userId : null });
+  
+  if (res.ok) {
+     if (res.data.needsSeed) {
+        toast("Mengkonfigurasi database awal. Mohon tunggu...", "info");
+        await setupAndSeedDatabase();
+        return syncWithBackend(); // Reload setelah seeding
+     }
+     
+     Object.assign(DB_CACHE, res.data);
+     if(res.data.user) {
+        state.user = res.data.user;
+     }
+  } else {
+     toast("Gagal memuat data dari server: " + res.error, "danger");
+  }
+}
+
+async function boot() {
+  $('#app').innerHTML = `<div style="height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:15px;">
+    <div style="font-size:50px;animation:spin 1s linear infinite">⚙️</div>
+    <b class="text-lg">Menyambungkan ke Server...</b>
+    <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+  </div>`;
+  
+  await syncWithBackend();
+  
+  if (session.get() && state.user) {
+    renderApp();
+  } else {
+    renderAuth('login');
+  }
+}
 
 /* ---------------- HELPERS ---------------- */
 const $ = (s,el=document)=>el.querySelector(s);
 const $$= (s,el=document)=>[...el.querySelectorAll(s)];
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const uid = ()=>Math.random().toString(36).slice(2,10);
+const uid = (p='id')=>p+'_'+Math.random().toString(36).slice(2,10);
 const fmtRp = n => 'Rp '+Number(n||0).toLocaleString('id-ID');
 const fmtDate = d => new Date(d).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'});
+const fmtDateTime = d => new Date(d).toLocaleString('id-ID');
+const debounce=(f,w=200)=>{let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>f(...a),w);};};
 
 function toast(msg, type='info'){
-  const w = $('#toastWrap'), el = document.createElement('div');
+  const w = $('#toastWrap');
+  const el = document.createElement('div');
   el.className='toast '+type;
-  el.innerHTML = `<div style="flex:1"><b>${esc(msg)}</b></div><button onclick="this.parentNode.remove()" style="color:var(--muted)">✕</button>`;
-  w.appendChild(el); setTimeout(()=>el.remove(), 4000);
+  el.innerHTML = `<div style="flex:1"><b style="font-size:13px">${esc(msg)}</b></div><button onclick="this.parentNode.remove()" style="color:var(--muted)">✕</button>`;
+  w.appendChild(el);
+  setTimeout(()=>el.remove(), 4000);
 }
 
 function modal({title, body, foot, size=''}){
   const mb = $('#modalBack');
-  mb.innerHTML = `<div class="modal ${size}"><div class="modal-head"><h3>${esc(title)}</h3><button onclick="closeModal()" class="btn icon ghost">✕</button></div><div class="modal-body">${body}</div>${foot?`<div class="modal-foot">${foot}</div>`:''}</div>`;
+  mb.innerHTML = `<div class="modal ${size}">
+    <div class="modal-head"><h3>${esc(title)}</h3><button onclick="closeModal()" class="btn icon ghost">✕</button></div>
+    <div class="modal-body">${body}</div>
+    ${foot?`<div class="modal-foot">${foot}</div>`:''}
+  </div>`;
   mb.classList.add('open');
+  document.body.style.overflow='hidden';
 }
-function closeModal(){ $('#modalBack').classList.remove('open'); }
+function closeModal(){ $('#modalBack').classList.remove('open'); $('#modalBack').innerHTML=''; document.body.style.overflow=''; }
+$('#modalBack').addEventListener('click', e=>{ if(e.target.id==='modalBack') closeModal(); });
+
 function confirmModal(msg, onYes){
-  modal({title:'Konfirmasi',body:`<p>${esc(msg)}</p>`,foot:`<button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn primary" id="cfYes">Ya, lanjutkan</button>`});
+  modal({title:'Konfirmasi',body:`<p>${esc(msg)}</p>`,
+    foot:`<button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn primary" id="cfYes">Ya, lanjutkan</button>`
+  });
   $('#cfYes').onclick=()=>{ closeModal(); onYes(); };
 }
 
-/* ============================================================
- * BOOTSTRAP APP
- * ============================================================ */
-async function bootApp() {
-  const auth = session.get();
-  if (!auth || !auth.token) {
-    renderAuth('login');
-    return;
-  }
-  
-  showLoader("Memuat data sistem...");
-  const res = await apiCall('init_app');
-  hideLoader();
+window.togglePw = btn => { const inp = btn.previousElementSibling; inp.type = inp.type==='password'?'text':'password'; };
+window.closeModal = closeModal;
 
-  if (res.success) {
-    window.APP_DATA = res.data;
-    state.user = res.data.currentUser;
-    // Default setting fallback if empty
-    if(!APP_DATA.settings?.general) APP_DATA.settings = {general:{name:'EduFlow LMS',logo:'🎓'}};
-    
-    renderApp();
-  } else {
-    toast("Sesi berakhir, silakan login kembali", "warn");
-    session.clear();
-    renderAuth('login');
-  }
-}
 
 /* ============================================================
- * AUTH PAGES (LOGIN / REGISTER)
+ * AUTH PAGES (TERSAMBUNG KE BACKEND - TAHAP 2)
  * ============================================================ */
 function renderAuth(mode='login'){
+  const settings = DB.get('settings');
+  document.title = settings.general.name+' - '+(mode==='login'?'Masuk':'Daftar');
   $('#app').innerHTML = `
   <div class="auth-wrap">
     <div class="auth-hero">
-      <div class="flex items-center gap-2"><div style="font-size:32px">🎓</div><b style="font-size:20px">EduFlow LMS</b></div>
-      <div><h1>Platform Akademi SaaS</h1><p>Akses kursus premium dan tingkatkan skill Anda.</p></div>
+      <div class="flex items-center gap-2">
+        <div style="width:46px;height:46px;border-radius:12px;background:rgba(255,255,255,.2);display:grid;place-items:center;font-size:22px">${settings.general.logo}</div>
+        <b style="font-size:20px">${esc(settings.general.name)}</b>
+      </div>
+      <div>
+        <h1>Platform LMS SaaS untuk Akademi & Kursus Online Anda</h1>
+        <p>Kelola kursus, peserta, pembayaran, dan sertifikat dalam satu dashboard yang elegan.</p>
+        <div class="auth-stats">
+          <div><b>Server</b><span style="opacity:.85">Terkoneksi ke Google Sheets</span></div>
+          <div><b>Aman</b><span style="opacity:.85">Proteksi Backend GAS</span></div>
+        </div>
+      </div>
     </div>
-    <div class="auth-form"><div class="auth-card">
-      ${mode==='login' ? `
-        <h2>Masuk ke Akun</h2><p class="muted mb-2">Silakan masuk untuk melanjutkan belajar.</p>
-        <form id="loginForm">
-          <div class="field"><label>Email</label><input class="input" type="email" name="email" required /></div>
-          <div class="field"><label>Password</label><input class="input" type="password" name="password" required /></div>
-          <button class="btn primary full" type="submit">Masuk</button>
-          <div style="margin-top:14px;text-align:center"><a href="#" onclick="renderAuth('register');return false;" style="color:var(--primary);font-weight:bold">Belum punya akun? Daftar</a></div>
-        </form>
-      ` : `
-        <h2>Buat Akun Baru</h2><p class="muted mb-2">Mulai perjalanan belajar Anda.</p>
-        <form id="regForm">
-          <div class="field"><label>Nama</label><input class="input" name="name" required /></div>
-          <div class="field"><label>Email</label><input class="input" type="email" name="email" required /></div>
-          <div class="field"><label>Password</label><input class="input" type="password" name="password" required /></div>
-          <button class="btn primary full" type="submit">Daftar Sekarang</button>
-          <div style="margin-top:14px;text-align:center"><a href="#" onclick="renderAuth('login');return false;" style="color:var(--primary);font-weight:bold">Sudah punya akun? Masuk</a></div>
-        </form>
-      `}
-    </div></div>
+    <div class="auth-form"><div class="auth-card">${mode==='login'?loginForm():registerForm()}</div></div>
   </div>`;
+  bindAuth(mode);
+}
 
-  if(mode === 'login'){
+function loginForm(){
+  return `
+    <h2>Masuk ke Akun</h2>
+    <p class="sub">Silakan masuk untuk melanjutkan belajar.</p>
+    <form id="loginForm" novalidate>
+      <div class="field">
+        <label>Email</label>
+        <input class="input" type="email" name="email" required />
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <div class="pw-wrap"><input class="input" type="password" name="password" required /><button type="button" onclick="togglePw(this)">👁</button></div>
+      </div>
+      <div class="flex justify-between items-center mb-2">
+        <label class="checkbox"><input type="checkbox" name="remember" /> Ingat saya</label>
+      </div>
+      <button class="btn primary full" type="submit" id="btnLog">Masuk</button>
+      <div class="divider">atau</div>
+      <button class="btn ghost full" type="button" data-go="register">Buat akun baru</button>
+      <div class="demo-creds">
+        <b>🔐 Akun Demo:</b><br>
+        Admin: <code>admin@lms.com</code> / <code>Admin123!</code><br>
+        Peserta: <code>peserta@lms.com</code> / <code>Peserta123!</code>
+      </div>
+    </form>
+  `;
+}
+
+function registerForm(){
+  return `
+    <h2>Buat Akun Baru</h2>
+    <form id="regForm" novalidate>
+      <div class="field"><label>Nama Lengkap</label><input class="input" type="text" name="name" required minlength="3" /></div>
+      <div class="field"><label>Email</label><input class="input" type="email" name="email" required /></div>
+      <div class="field"><label>Password</label>
+        <div class="pw-wrap"><input class="input" type="password" name="password" required minlength="8" /><button type="button" onclick="togglePw(this)">👁</button></div>
+      </div>
+      <button class="btn primary full" id="btnReg">Daftar Sekarang</button>
+      <div class="divider">atau</div>
+      <button class="btn ghost full" type="button" data-go="login">Sudah punya akun? Masuk</button>
+    </form>
+  `;
+}
+
+function bindAuth(mode){
+  $$('[data-go]').forEach(a=>a.onclick=e=>{e.preventDefault();renderAuth(a.dataset.go);});
+
+  if(mode==='login'){
     $('#loginForm').onsubmit = async e => {
-      e.preventDefault();
-      showLoader("Memverifikasi...");
-      const res = await apiCall('login', { email: e.target.email.value, password: e.target.password.value });
-      hideLoader();
+      e.preventDefault(); const f = e.target;
+      if(!f.email.value || !f.password.value){toast('Isi formulir dengan lengkap','danger'); return;}
       
-      if(res.success){
-        session.set({ token: res.data.token, userId: res.data.user.id });
-        toast("Login berhasil", "success");
-        bootApp();
-      } else {
-        toast(res.message, "danger");
+      $('#btnLog').disabled = true; $('#btnLog').textContent = "Memproses...";
+      const r = await apiFetch('login', {email: f.email.value.trim(), password: f.password.value});
+      
+      if(!r.ok){ 
+        toast(r.error,'danger'); 
+        $('#btnLog').disabled = false; $('#btnLog').textContent = "Masuk";
+        return; 
       }
+      toast('Login berhasil','success');
+      session.set({userId: r.data.user.id, loginAt: Date.now(), remember: !!f.remember.checked});
+      state.user = r.data.user;
+      await syncWithBackend();
+      renderApp();
     };
   } else {
     $('#regForm').onsubmit = async e => {
-      e.preventDefault();
-      showLoader("Mendaftarkan akun...");
-      const res = await apiCall('register', { name: e.target.name.value, email: e.target.email.value, password: e.target.password.value });
-      hideLoader();
+      e.preventDefault(); const f = e.target;
+      if(!f.name.value || !f.email.value || f.password.value.length < 8) {toast('Cek kembali data (Pass Min 8 char)','danger'); return;}
       
-      if(res.success){
-        toast("Pendaftaran berhasil, silakan login", "success");
-        renderAuth('login');
-      } else {
-        toast(res.message, "danger");
+      $('#btnReg').disabled = true; $('#btnReg').textContent = "Memproses...";
+      const r = await apiFetch('register', {name: f.name.value.trim(), email: f.email.value.trim(), password: f.password.value});
+      
+      if(!r.ok){ 
+        toast(r.error,'danger'); 
+        $('#btnReg').disabled = false; $('#btnReg').textContent = "Daftar Sekarang";
+        return; 
       }
+      toast('Pendaftaran berhasil! Silakan masuk.','success');
+      renderAuth('login');
     };
   }
 }
 
 /* ============================================================
- * MAIN APP SHELL & ROUTER
+ * MAIN APP SHELL
  * ============================================================ */
+const ADMIN_NAV = [
+  {sec:'Utama',items:[{id:'dashboard',label:'Dashboard',icon:'M3 12l9-9 9 9M5 10v10h14V10'}]},
+  {sec:'Konten',items:[{id:'courses',label:'Manajemen Kursus',icon:'M4 6h16v12H4zM8 6V4M16 6V4'},{id:'categories',label:'Kategori',icon:'M3 7h7v7H3z'},{id:'modules',label:'Modul',icon:'M4 4h16v4H4z'}]},
+  {sec:'Pengguna',items:[{id:'students',label:'Peserta',icon:'M16 21v-2a4 4 0 00-4-4H6'},{id:'instructors',label:'Instruktur',icon:'M12 14l9-5-9-5-9 5 9 5zM12 14v7M5 9v6'}]},
+  {sec:'Bisnis',items:[{id:'transactions',label:'Transaksi',icon:'M3 10h18M5 6h14'},{id:'coupons',label:'Kupon Diskon',icon:'M9 14l6-6M9 9h.01'}]}
+];
+
+const STUDENT_NAV = [
+  {sec:'Belajar',items:[{id:'sdashboard',label:'Beranda',icon:'M3 12l9-9 9 9M5 10v10h14V10'},{id:'mycourses',label:'Kursus Saya',icon:'M4 6h16v12H4z'},{id:'catalog',label:'Katalog Kursus',icon:'M21 21l-4-4m-4 0a8 8 0 110-16'},{id:'forum',label:'Forum',icon:'M21 15a2 2 0 01-2 2H7l-4 4V5'}]},
+  {sec:'Akun',items:[{id:'mytrx',label:'Transaksi Saya',icon:'M3 10h18'},{id:'cart',label:'Keranjang',icon:'M3 3h2l.4 2'},{id:'profile',label:'Profil',icon:'M16 21v-2a4 4 0 00-4-4H6'}]},
+];
+
 function renderApp(){
   const u = state.user;
   const isAdmin = u.role==='admin';
-  if(!state.route) state.route = isAdmin ? 'dashboard' : 'sdashboard';
-  
-  const set = DB.get('settings');
+  const nav = isAdmin?ADMIN_NAV:STUDENT_NAV;
+  if(!state.route || !nav.some(s=>s.items.some(i=>i.id===state.route))) state.route = isAdmin?'dashboard':'sdashboard';
 
-  const nav = isAdmin ? [
-    {sec:'Admin',items:[{id:'dashboard',label:'Dashboard'},{id:'courses',label:'Manajemen Kursus'},{id:'categories',label:'Kategori'},{id:'students',label:'Peserta'},{id:'transactions',label:'Transaksi'}]}
-  ] : [
-    {sec:'Belajar',items:[{id:'sdashboard',label:'Beranda'},{id:'mycourses',label:'Kursus Saya'},{id:'catalog',label:'Katalog'},{id:'cart',label:'Keranjang'}]}
-  ];
+  const settings = DB.get('settings');
 
   $('#app').innerHTML = `
     <div class="app">
-      <aside class="sidebar">
-        <div class="sidebar-brand"><b>${esc(set.general.logo)} ${esc(set.general.name)}</b></div>
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-brand"><div class="logo">${settings.general.logo}</div><div><b>${esc(settings.general.name)}</b></div></div>
         ${nav.map(s=>`
           <div class="sidebar-section">${s.sec}</div>
-          ${s.items.map(it=>`<div class="nav-item ${state.route===it.id?'active':''}" data-route="${it.id}">- ${it.label}</div>`).join('')}
+          ${s.items.map(it=>`
+            <div class="nav-item ${state.route===it.id?'active':''}" data-route="${it.id}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="${it.icon}"/></svg>${it.label}
+            </div>`).join('')}
         `).join('')}
-        <button class="nav-item" style="color:var(--danger);margin-top:20px" onclick="session.clear();renderAuth('login')">Logout</button>
+        <button class="nav-item mt-4" id="logoutBtn" style="width:100%;color:#fca5a5">Logout</button>
       </aside>
       <div class="main">
-        <header class="topbar"><h1 id="pageTitle"></h1><div class="flex-1"></div><div class="av">${u.name[0]}</div></header>
+        <header class="topbar">
+          <button class="menu-toggle btn ghost icon" id="menuToggle">☰</button>
+          <h1 id="pageTitle"></h1><div class="flex-1"></div>
+          <button class="btn ghost icon" id="themeBtn">🌙</button>
+          ${!isAdmin?`<button class="btn ghost icon" data-route="cart">🛒 ${cartCount()>0?`<span style="color:red;font-size:12px;font-weight:bold">${cartCount()}</span>`:''}</button>`:''}
+          <div class="avatar">${esc((u.name||'?')[0].toUpperCase())}</div>
+        </header>
         <div class="page" id="page"></div>
       </div>
     </div>
   `;
 
-  $$('[data-route]').forEach(el=>el.onclick = ()=>{ state.route = el.dataset.route; renderApp(); });
-  
-  const pages = {
-    dashboard: renderAdminDashboard, courses: renderAdminCourses, categories: renderAdminCategories,
-    students: renderAdminStudents, transactions: renderAdminTransactions,
-    sdashboard: renderStudentDashboard, mycourses: renderMyCourses, catalog: renderCatalog, cart: renderCart
+  $('#themeBtn').onclick = ()=>{
+    const nx = DB.get('theme')==='light'?'dark':'light'; DB.set('theme',nx); document.documentElement.dataset.theme = nx;
   };
-  
-  if(pages[state.route]) pages[state.route]($('#page'));
+  $('#logoutBtn').onclick = ()=>confirmModal('Yakin keluar?', ()=>{ session.clear(); state.user=null; boot(); });
+  $('#menuToggle').onclick = ()=> $('#sidebar').classList.toggle('open');
+  $$('[data-route]').forEach(el=>el.onclick = ()=>{ state.route = el.dataset.route; renderApp(); });
+
+  renderPage();
+}
+
+function cartCount(){ return Object.values(state.cart).reduce((a,b)=>a+b,0); }
+
+const PAGES = {};
+function renderPage(){
+  const titleMap = { dashboard:'Dashboard Admin', courses:'Manajemen Kursus', categories:'Kategori', modules:'Modul Pembelajaran', students:'Peserta', instructors:'Instruktur', transactions:'Transaksi', coupons:'Kupon Diskon', sdashboard:'Beranda', mycourses:'Kursus Saya', catalog:'Katalog Kursus', forum:'Forum', mytrx:'Transaksi Saya', cart:'Keranjang', profile:'Profil'};
+  $('#pageTitle').textContent = titleMap[state.route]||'';
+  if(PAGES[state.route]) PAGES[state.route]($('#page')); 
   else $('#page').innerHTML = '<div class="empty">Halaman dalam pengembangan</div>';
 }
 
 /* ============================================================
- * ADMIN PAGES (Dengan Data Sync Backend)
+ * ADMIN PAGES - Terintegrasi Server GAS Backend
  * ============================================================ */
-function renderAdminDashboard(el){
-  $('#pageTitle').textContent = "Dashboard Admin";
+PAGES.dashboard = el => {
   const courses = DB.get('courses',[]);
   const users = DB.get('users',[]);
   const trx = DB.get('transactions',[]);
-  const rev = trx.filter(t=>t.status==='success').reduce((a,b)=>a+b.amount,0);
-  
   el.innerHTML = `
+    <div class="page-head"><div><h2>Dashboard Admin</h2><p>Server Tersinkronisasi dengan Google Sheets</p></div></div>
     <div class="stats">
-      <div class="stat"><b>${users.filter(u=>u.role==='student').length}</b><span>Total Peserta</span></div>
-      <div class="stat"><b>${courses.length}</b><span>Total Kursus</span></div>
-      <div class="stat"><b>${fmtRp(rev)}</b><span>Pendapatan</span></div>
-    </div>
-    <div class="card mt-3"><b>Transaksi Terbaru</b>
-      <table class="table mt-2">
-        <thead><tr><th>ID</th><th>Peserta</th><th>Kursus</th><th>Jumlah</th></tr></thead>
-        <tbody>${trx.slice(0,5).map(t=>`<tr><td>${t.id}</td><td>${esc(t.userName)}</td><td>${esc(t.courseTitle)}</td><td>${fmtRp(t.amount)}</td></tr>`).join('')}</tbody>
-      </table>
+      <div class="stat"><div class="ic">👥</div><b>${users.length}</b><span>Total User</span></div>
+      <div class="stat"><div class="ic">📚</div><b>${courses.length}</b><span>Total Kursus</span></div>
+      <div class="stat"><div class="ic">🛒</div><b>${trx.length}</b><span>Total Transaksi</span></div>
+      <div class="stat"><div class="ic">💰</div><b>${fmtRp(trx.reduce((a,b)=>a+(b.status==='success'?b.amount:0),0))}</b><span>Pendapatan</span></div>
     </div>
   `;
-}
+};
 
-// Wrapper Cerdas untuk Sinkronisasi Admin ke Backend
-async function syncAdminData(entityName, localArrayData) {
-  showLoader(`Menyimpan data ${entityName}...`);
-  const res = await apiCall('admin_sync', { entity: entityName, data: localArrayData });
-  hideLoader();
-  if(res.success){
-    DB.setLocal(entityName.toLowerCase(), localArrayData); // Update lokal cache
-    toast("Berhasil disimpan", "success");
-    renderApp(); // Reload page
-  } else {
-    toast(res.message, "danger");
-  }
-}
-
-function renderAdminCourses(el){
-  $('#pageTitle').textContent = "Manajemen Kursus";
+PAGES.courses = el => {
   const courses = DB.get('courses',[]);
+  const cats = DB.get('categories',[]);
   el.innerHTML = `
-    <button class="btn primary mb-2" id="addC">+ Tambah Kursus</button>
-    <div class="card"><table class="table">
-      <thead><tr><th>Judul</th><th>Harga</th><th>Status</th><th>Aksi</th></tr></thead>
-      <tbody>${courses.map(c=>`<tr><td><b>${c.emoji} ${esc(c.title)}</b></td><td>${fmtRp(c.price)}</td><td><span class="badge">${c.status}</span></td>
-      <td><button class="btn sm danger" data-del="${c.id}">Hapus</button></td></tr>`).join('')}</tbody>
+    <div class="page-head"><div><h2>Manajemen Kursus</h2></div><button class="btn primary" id="addCourse">+ Tambah Kursus</button></div>
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th>Kursus</th><th>Harga</th><th>Status</th><th>Aksi</th></tr></thead>
+      <tbody>${courses.map(c=>`<tr>
+          <td><div class="flex items-center gap-2"><div class="av">${c.emoji}</div><b>${esc(c.title)}</b></div></td>
+          <td><b>${fmtRp(c.price)}</b></td>
+          <td><span class="badge ${c.status==='published'?'success':'warn'}">${c.status}</span></td>
+          <td><button class="btn sm ghost" data-edit="${c.id}">✏️</button> <button class="btn sm danger" data-del="${c.id}">🗑</button></td>
+        </tr>`).join('')}</tbody>
     </table></div>
   `;
+  el.querySelector('#addCourse').onclick=()=>courseFormModal();
+  el.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>courseFormModal(b.dataset.edit));
+  el.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>confirmModal('Hapus ke server?', async ()=>{
+    const res = await apiFetch('deleteRecord', { sheetName: 'Courses', id: b.dataset.del });
+    if(res.ok) { await syncWithBackend(); toast('Dihapus dari server','success'); renderPage(); }
+    else toast(res.error, 'danger');
+  }));
+};
+
+function courseFormModal(id){
+  const cats = DB.get('categories',[]);
+  const ins = DB.get('instructors',[]);
+  const c = id?DB.get('courses',[]).find(x=>x.id===id):{title:'',categoryId:cats[0]?.id,instructorId:ins[0]?.id,price:0,emoji:'📘',description:'',status:'draft',level:'Pemula',duration:8};
+  modal({ title: id?'Edit Kursus':'Tambah Kursus', size:'lg',
+    body:`<form id="cForm">
+      <div class="grid-2">
+        <div class="field"><label>Judul</label><input class="input" name="title" required value="${esc(c.title)}" /></div>
+        <div class="field"><label>Emoji</label><input class="input" name="emoji" maxlength="2" value="${esc(c.emoji)}" /></div>
+      </div>
+      <div class="grid-2">
+        <div class="field"><label>Kategori</label><select class="select" name="cat">${cats.map(x=>`<option value="${x.id}" ${x.id===c.categoryId?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div>
+        <div class="field"><label>Instruktur</label><select class="select" name="inst">${ins.map(x=>`<option value="${x.id}" ${x.id===c.instructorId?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div>
+      </div>
+      <div class="grid-2">
+        <div class="field"><label>Harga Server (Rp)</label><input class="input" type="number" name="price" value="${c.price}" required /></div>
+        <div class="field"><label>Status</label><select class="select" name="status"><option value="draft" ${c.status==='draft'?'selected':''}>Draft</option><option value="published" ${c.status==='published'?'selected':''}>Publish</option></select></div>
+      </div>
+      <div class="field"><label>Deskripsi</label><textarea class="textarea" name="desc" required>${esc(c.description)}</textarea></div>
+    </form>`,
+    foot:`<button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn primary" id="saveC">Simpan ke Server</button>`
+  });
   
-  $('#addC').onclick = ()=>{
-    modal({title:'Tambah Kursus', body:`<form id="cf"><div class="field"><label>Judul</label><input name="title" required class="input"></div><div class="field"><label>Harga (Rp)</label><input type="number" name="price" required class="input"></div></form>`, foot:`<button class="btn primary" id="sv">Simpan</button>`});
-    $('#sv').onclick = () => {
-      const f = $('#cf');
-      courses.unshift({id:'k_'+uid(), title:f.title.value, price:Number(f.price.value), emoji:'📘', status:'published', level:'Pemula', duration:10, enrolled:0, rating:5, modules:[]});
-      closeModal(); syncAdminData('Courses', courses);
+  $('#saveC').onclick = async () => {
+    const f = $('#cForm');
+    const data = { title:f.title.value, emoji:f.emoji.value||'📘', categoryId:f.cat.value, instructorId:f.inst.value, price:+f.price.value, description:f.desc.value, status:f.status.value, level:'Pemula', duration:10, enrolled:0, rating:'5.0' };
+    if(id) data.id = id;
+    
+    $('#saveC').disabled=true; $('#saveC').textContent="Menyimpan...";
+    const res = await apiFetch('saveRecord', { sheetName: 'Courses', record: data });
+    if(res.ok) { await syncWithBackend(); closeModal(); toast('Tersimpan di Server','success'); renderPage(); }
+    else { toast(res.error, 'danger'); $('#saveC').disabled=false; $('#saveC').textContent="Simpan"; }
+  };
+}
+
+PAGES.categories = el => {
+  const cats = DB.get('categories',[]);
+  el.innerHTML = `
+    <div class="page-head"><div><h2>Kategori</h2></div><button class="btn primary" id="add">+ Kategori</button></div>
+    <div class="grid-3">${cats.map(c=>`
+      <div class="card">
+        <div style="font-size:34px">${c.icon||'📁'}</div><b>${esc(c.name)}</b>
+        <div class="mt-2 flex gap-1"><button class="btn sm danger" data-del="${c.id}">Hapus</button></div>
+      </div>`).join('')}</div>
+  `;
+  el.querySelector('#add').onclick=()=> {
+    modal({title:'Tambah Kategori',body:`<form id="cf"><input class="input" name="name" placeholder="Nama" required/><input class="input mt-1" name="icon" placeholder="Emoji"/></form>`,foot:`<button class="btn primary" id="cs">Simpan</button>`});
+    $('#cs').onclick = async () => {
+      const btn = $('#cs'); btn.disabled=true;
+      const res = await apiFetch('saveRecord', {sheetName:'Categories', record:{name: $('#cf').name.value, icon: $('#cf').icon.value||'📁'}});
+      if(res.ok){ await syncWithBackend(); closeModal(); renderPage(); }
     };
   };
-  
-  $$('[data-del]').forEach(b=>b.onclick=()=>confirmModal('Hapus kursus?',()=>{
-    syncAdminData('Courses', courses.filter(x=>x.id!==b.dataset.del));
+  el.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>confirmModal('Hapus?', async ()=>{
+    await apiFetch('deleteRecord', {sheetName:'Categories', id:b.dataset.del}); await syncWithBackend(); renderPage();
   }));
-}
+};
 
-function renderAdminCategories(el){ $('#pageTitle').textContent = "Kategori"; el.innerHTML='<div class="empty">Fitur CRUD Kategori (Gunakan pola syncAdminData seperti Kursus)</div>'; }
-function renderAdminStudents(el){ $('#pageTitle').textContent = "Peserta"; el.innerHTML='<div class="empty">Daftar Peserta</div>'; }
-function renderAdminTransactions(el){ $('#pageTitle').textContent = "Transaksi"; el.innerHTML='<div class="empty">Laporan Transaksi</div>'; }
+PAGES.transactions = el => {
+  const trx = DB.get('transactions',[]).sort((a,b)=>b.createdAt-a.createdAt);
+  el.innerHTML = `
+    <div class="page-head"><div><h2>Transaksi Server</h2><p>Data Validasi Backend</p></div></div>
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th>ID</th><th>User</th><th>Kursus</th><th>Jumlah</th><th>Status</th></tr></thead>
+      <tbody>${trx.map(t=>`<tr><td><code>${t.id}</code></td><td>${esc(t.userName)}</td><td>${esc(t.courseTitle)}</td><td><b>${fmtRp(t.amount)}</b></td><td><span class="badge ${t.status==='success'?'success':t.status==='pending'?'warn':'danger'}">${t.status}</span></td></tr>`).join('')}</tbody>
+    </table></div>
+  `;
+};
 
 /* ============================================================
- * STUDENT PAGES
+ * STUDENT PAGES - CHECKOUT & VALIDASI BACKEND (TAHAP 4)
  * ============================================================ */
-function renderStudentDashboard(el){
-  $('#pageTitle').textContent = `Halo, ${state.user.name} 👋`;
-  const courses = DB.get('courses',[]);
-  const myEnrolled = state.user.enrolled || [];
-  
+PAGES.sdashboard = el => {
+  const u = state.user;
+  const courses = DB.get('courses',[]).filter(c=>c.status==='published');
+  const en = u.enrolled||[];
   el.innerHTML = `
-    <div class="stats mb-3">
-      <div class="stat"><b>${myEnrolled.length}</b><span>Kursus Diikuti</span></div>
-      <div class="stat"><b>${myEnrolled.filter(e=>e.progress>=100).length}</b><span>Selesai</span></div>
+    <div class="page-head"><div><h2>Halo, ${esc(u.name)} 👋</h2><p>Lanjutkan belajar dan capai target Anda.</p></div></div>
+    <div class="stats">
+      <div class="stat"><div class="ic">📚</div><b>${en.length}</b><span>Kursus Diikuti</span></div>
     </div>
-    <b class="text-lg">Katalog Populer</b>
-    <div class="grid-3 mt-2">${courses.slice(0,3).map(c=>`
-      <div class="course-card" onclick="openCourseInfo('${c.id}')">
+    <div class="grid-3 mt-3">${courses.slice(0,3).map(c=>`
+      <div class="course-card" onclick="window.openCourse('${c.id}')">
         <div class="course-thumb">${c.emoji}</div>
-        <div class="course-body"><h3>${esc(c.title)}</h3><b style="color:var(--primary)">${fmtRp(c.price)}</b></div>
-      </div>
-    `).join('')}</div>
-  `;
-}
-
-function renderCatalog(el){
-  $('#pageTitle').textContent = `Katalog Kursus`;
-  const courses = DB.get('courses',[]);
-  el.innerHTML = `<div class="grid-3">${courses.map(c=>`
-    <div class="course-card" onclick="openCourseInfo('${c.id}')">
-      <div class="course-thumb">${c.emoji}</div>
-      <div class="course-body"><h3>${esc(c.title)}</h3><b style="color:var(--primary)">${fmtRp(c.price)}</b></div>
-    </div>
-  `).join('')}</div>`;
-}
-
-function renderMyCourses(el){
-  $('#pageTitle').textContent = `Kursus Saya`;
-  const courses = DB.get('courses',[]);
-  const myEnrolled = state.user.enrolled || [];
-  el.innerHTML = `<div class="grid-3">${myEnrolled.length ? myEnrolled.map(e=>{const c=courses.find(x=>x.id===e.courseId); return `
-    <div class="course-card" onclick="alert('Buka Modul Viewer (Dalam Pengembangan)')">
-      <div class="course-thumb">${c.emoji}</div>
-      <div class="course-body"><h3>${esc(c.title)}</h3><span class="badge success">${e.progress}% Selesai</span></div>
-    </div>
-  `}).join('') : '<div class="empty" style="grid-column:1/-1">Belum ada kursus diikuti</div>'}</div>`;
-}
-
-window.openCourseInfo = (cid) => {
-  const c = DB.get('courses',[]).find(x=>x.id===cid);
-  modal({title:c.title, size:'lg', body:`
-    <div class="flex gap-3"><div class="course-thumb" style="width:150px;border-radius:10px">${c.emoji}</div>
-    <div><h2 style="margin-bottom:10px">${esc(c.title)}</h2><p>${esc(c.description||'Deskripsi kursus')}</p>
-    <b style="color:var(--primary);font-size:24px;display:block;margin-top:10px">${fmtRp(c.price)}</b></div></div>
-  `, foot:`<button class="btn primary" onclick="addToCart('${cid}')">🛒 Tambah Keranjang</button>`});
-}
-
-window.addToCart = (cid) => {
-  state.cart[cid] = 1;
-  toast('Ditambahkan ke keranjang','success'); closeModal(); renderApp();
-}
-
-function renderCart(el){
-  $('#pageTitle').textContent = `Keranjang Belanja`;
-  const courses = DB.get('courses',[]);
-  const items = Object.keys(state.cart).map(id=>courses.find(c=>c.id===id)).filter(Boolean);
-  const subtotal = items.reduce((a,b)=>a+b.price,0);
-  
-  if(items.length===0){ el.innerHTML='<div class="empty">Keranjang Kosong</div>'; return; }
-  
-  el.innerHTML = `
-    <div class="grid" style="grid-template-columns:2fr 1fr;gap:20px">
-      <div>${items.map(c=>`<div class="card mb-2 flex justify-between items-center">
-        <div class="flex items-center gap-2"><div class="av">${c.emoji}</div><b>${esc(c.title)}</b></div>
-        <b>${fmtRp(c.price)}</b>
+        <div class="course-body"><h3>${esc(c.title)}</h3><div class="course-meta"><b class="price">${fmtRp(c.price)}</b></div></div>
       </div>`).join('')}</div>
-      <div class="card" style="height:fit-content">
-        <b class="text-lg">Ringkasan</b>
-        <div class="field mt-2"><label>Kode Diskon</label><input class="input" id="cpnCode" placeholder="Masukkan kode"></div>
-        <div class="flex justify-between mt-2 text-lg"><span>Total</span><b style="color:var(--primary)">${fmtRp(subtotal)}</b></div>
-        <button class="btn primary full mt-2" id="btnCheckout">Checkout Sekarang</button>
+  `;
+};
+
+PAGES.catalog = el => {
+  const cs = DB.get('courses',[]).filter(c=>c.status==='published');
+  el.innerHTML = `
+    <div class="page-head"><div><h2>Katalog Kursus</h2></div></div>
+    <div class="grid-3">${cs.map(c=>`
+      <div class="course-card" onclick="window.openCourse('${c.id}')">
+        <div class="course-thumb">${c.emoji}</div>
+        <div class="course-body"><h3>${esc(c.title)}</h3><div class="course-meta"><b class="price">${fmtRp(c.price)}</b></div></div>
+      </div>`).join('')}</div>
+  `;
+};
+
+window.openCourse = cid => {
+  const c = DB.get('courses',[]).find(x=>x.id===cid);
+  const u = state.user; const enrolled = u && (u.enrolled||[]).some(e=>e.courseId===cid);
+  modal({title:c.title, size:'lg',
+    body:`
+      <div class="course-thumb" style="height:150px;border-radius:14px">${c.emoji}</div>
+      <h2 style="margin-top:14px">${esc(c.title)}</h2>
+      <p class="mt-2">${esc(c.description)}</p>
+      <div class="card mt-2">
+        <div class="text-2xl font-bold" style="color:var(--primary)">${fmtRp(c.price)}</div>
+        ${enrolled?`<button class="btn primary full mt-2" onclick="closeModal()">▶ Mulai Belajar</button>`:`
+          <button class="btn primary full mt-2" onclick="addToCart('${cid}');closeModal()">🛒 Tambah Keranjang</button>`}
       </div>
-    </div>
+    `, foot:''
+  });
+};
+
+window.addToCart = cid => { state.cart[cid]=1; DB.set('cart',state.cart); toast('Masuk keranjang','success'); renderApp(); };
+
+PAGES.cart = el => {
+  const cart = state.cart; const courses = DB.get('courses',[]);
+  const items = Object.keys(cart).map(id=>courses.find(c=>c.id===id)).filter(Boolean);
+  let cpCode = '';
+  const sub = items.reduce((a,c)=>a+c.price,0);
+
+  el.innerHTML = `
+    <div class="page-head"><div><h2>Keranjang & Checkout</h2></div></div>
+    ${items.length?`
+    <div class="grid" style="grid-template-columns:2fr 1fr;gap:16px">
+      <div>${items.map(c=>`<div class="card mb-2 flex justify-between items-center"><div class="flex items-center gap-2"><div class="av">${c.emoji}</div><b>${esc(c.title)}</b></div><b>${fmtRp(c.price)}</b><button class="btn sm danger" onclick="delete state.cart['${c.id}'];DB.set('cart',state.cart);renderApp()">✕</button></div>`).join('')}</div>
+      <div class="card">
+        <b class="text-lg">Checkout API Server</b>
+        <div class="field mt-2"><label>Kode Kupon (Divalidasi Server)</label><input class="input" id="cc" style="text-transform:uppercase"/></div>
+        <div class="field"><label>Metode</label><select class="select" id="gw"><option value="midtrans">Midtrans</option><option value="xendit">Xendit</option></select></div>
+        <hr style="margin:14px 0;border:0;border-top:1px solid var(--border)"/>
+        <button class="btn primary full mt-2" id="co">Proses Pembayaran ke Server</button>
+      </div>
+    </div>`:'<div class="empty">Keranjang kosong</div>'}
   `;
   
-  $('#btnCheckout').onclick = async () => {
-    // KEAMANAN KETAT: Perhitungan akhir PASTI dilakukan di Backend
-    showLoader("Memproses pembayaran aman...");
-    const res = await apiCall('checkout', { 
-      cart: state.cart, 
-      couponCode: $('#cpnCode').value,
-      gateway: 'midtrans' 
-    });
-    hideLoader();
-    
-    if(res.success){
-      state.cart = {}; 
-      toast("Pembayaran Berhasil! Kursus telah ditambahkan.", "success");
-      bootApp(); // Reload untuk mendapat data enrolled terbaru
-    } else {
-      toast(res.message, "danger");
-    }
-  };
+  if(items.length){
+    $('#co').onclick = async () => {
+      const btn = $('#co'); btn.disabled=true; btn.textContent="Memproses API...";
+      const payload = {
+        userId: state.user.id,
+        courseIds: items.map(x=>x.id),
+        couponCode: $('#cc').value.trim().toUpperCase(),
+        gateway: $('#gw').value
+      };
+      
+      const res = await apiFetch('checkout', payload); // LOGIKA TRANSAKSI AMAN
+      
+      if(res.ok) {
+        state.cart = {}; DB.set('cart',{});
+        await syncWithBackend();
+        toast('Sukses! Divalidasi dan disimpan di server.','success');
+        state.route = 'mytrx'; renderApp();
+      } else {
+        toast("Checkout Gagal: " + res.error, 'danger');
+        btn.disabled=false; btn.textContent="Proses Pembayaran ke Server";
+      }
+    };
+  }
+};
+
+PAGES.mytrx = el => {
+  const trx = DB.get('transactions',[]).filter(t=>t.userId===state.user.id).sort((a,b)=>b.createdAt-a.createdAt);
+  el.innerHTML = `
+    <div class="page-head"><div><h2>Riwayat Transaksi Server</h2></div></div>
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th>ID</th><th>Kursus</th><th>Jumlah Bayar (Kalkulasi Server)</th><th>Status</th></tr></thead>
+      <tbody>${trx.map(t=>`<tr><td><code>${t.id}</code></td><td>${esc(t.courseTitle)}</td><td><b>${fmtRp(t.amount)}</b></td><td><span class="badge ${t.status==='success'?'success':t.status==='pending'?'warn':'danger'}">${t.status}</span></td></tr>`).join('')}</tbody>
+    </table></div>
+  `;
+};
+
+/* --- Seeding Database Otomatis ke Backend jika Kosong --- */
+async function setupAndSeedDatabase() {
+  await apiFetch('setup');
+  
+  // Data dummy awal persis seperti yang direquest
+  const categories = [{id:'c1',name:'Digital Marketing',icon:'📈'},{id:'c2',name:'Design',icon:'🎨'},{id:'c3',name:'Programming',icon:'💻'}];
+  const instructors = [{id:'i1',name:'Andi Pratama',email:'andi@lms.com',expertise:'Digital Marketing',bio:'Expert'}];
+  const courses = [
+    {id:'k1', title:'Digital Marketing', categoryId:'c1', instructorId:'i1', price:499000, emoji:'📈', description:'Belajar digital marketing', status:'published'},
+    {id:'k2', title:'UI/UX Design Bootcamp', categoryId:'c2', instructorId:'i1', price:899000, emoji:'🎨', description:'Desain antarmuka', status:'published'}
+  ];
+  const users = [
+    {id:'admin1', name:'Administrator', email:'admin@lms.com', password:'Admin123!', role:'admin', joinedAt:Date.now(), status:'active'},
+    {id:'student0', name:'Peserta Demo', email:'peserta@lms.com', password:'Peserta123!', role:'student', joinedAt:Date.now(), status:'active', enrolled:[{courseId:'k1',progress:0,completedModules:[]}]}
+  ];
+  
+  await apiFetch('seed', { categories, instructors, courses, users });
+  toast('Database Backend siap digunakan!', 'success');
 }
 
 // Mulai aplikasi
-bootApp();
+boot();
 </script>
 </body>
 </html>
