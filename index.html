@@ -838,12 +838,7 @@ function loginForm(){
       <button class="btn primary full" type="submit">Masuk</button>
       <div class="divider">atau</div>
       <button class="btn ghost full" type="button" data-go="register">Buat akun baru</button>
-      ${(DB.get('settings').security?.showDemo!==false) ? `<div class="demo-creds">
-        <b>🔐 Akun Demo:</b><br>
-        Admin: <code>admin@lms.com</code> / <code>Admin123!</code><br>
-        Peserta: <code>peserta@lms.com</code> / <code>Peserta123!</code><br>
-        Instruktur: <code>instruktur@lms.com</code> / <code>Instruktur123!</code>
-      </div>` : ''}
+      
     </form>
   `;
 }
