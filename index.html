@@ -319,7 +319,7 @@ const session = {
  *  Login mengembalikan JWT — disimpan di sessionStorage (tidak persistent
  *  di localStorage agar tidak bisa dibaca script pihak lain via XSS reflection).
  * ============================================================ */
-const GAS_URL    = "https://script.google.com/macros/s/AKfycbzCwYlDHMUHZjjcdqqvVexDcGiZr0OHrDJ58w6kqvYVnafI0cv0tYM6lSAEPBnnc4tb3w/exec";    // <-- paste URL Web App GAS
+const GAS_URL    = "https://script.google.com/macros/s/AKfycby84QQsju4xMShna06diPNYQPdxGuF6gT_M6Mvlz_JojZW6njygSxNCE2XZwd3a8C_Rww/exec";    // <-- paste URL Web App GAS
 const CLIENT_HMAC= "8f7c2d91b5e4a8f36c7e2b1d9a4f5c8e7d3b6a9c2f1e8d4b7c5a9e2f6d8b1c4";                // <-- samakan dgn HMAC_SECRET di Script Properties
 const API_ENABLED= () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
 
