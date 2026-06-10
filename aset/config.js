@@ -13,6 +13,6 @@
  * ============================================================ */
 window.EDUFLOW_CONFIG = {
   // Contoh: "https://script.google.com/macros/s/AKfycb.../exec"
-  GAS_URL: "",
-  HMAC_SECRET: "CHANGE_ME_HMAC"
+  GAS_URL: "https://script.google.com/macros/s/AKfycby84QQsju4xMShna06diPNYQPdxGuF6gT_M6Mvlz_JojZW6njygSxNCE2XZwd3a8C_Rww/exec",
+  HMAC_SECRET: "8f7c2d91b5e4a8f36c7e2b1d9a4f5c8e7d3b6a9c2f1e8d4b7c5a9e2f6d8b1c4"
 };
