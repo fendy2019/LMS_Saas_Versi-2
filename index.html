@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#6366f1" />
 <meta name="description" content="EduFlow LMS - Platform Kursus Online SaaS Modern" />
+<meta name="referrer" content="strict-origin-when-cross-origin" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob: https://script.google.com https://*.googleusercontent.com https://drive.google.com; img-src 'self' data: blob: https://*.googleusercontent.com https://drive.google.com; media-src 'self' data: blob: https://*.googleusercontent.com https://drive.google.com; connect-src 'self' https://script.google.com https://script.googleusercontent.com; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-src https://drive.google.com https://www.youtube.com https://player.vimeo.com; object-src 'none'; base-uri 'self'" />
 <title>EduFlow LMS - Platform Kursus Online</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%236366f1'/%3E%3Cpath d='M16 24l16-8 16 8-16 8z' fill='white'/%3E%3Cpath d='M22 30v8c0 3 4 6 10 6s10-3 10-6v-8' stroke='white' stroke-width='2.5' fill='none'/%3E%3C/svg%3E" />
 <link rel="manifest" href='data:application/manifest+json,{"name":"EduFlow LMS","short_name":"EduFlow","start_url":".","display":"standalone","background_color":"%230f172a","theme_color":"%236366f1","icons":[{"src":"data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 512 512%27%3E%3Crect width=%27512%27 height=%27512%27 rx=%27110%27 fill=%27%236366f1%27/%3E%3Cpath d=%27M128 192l128-64 128 64-128 64z%27 fill=%27white%27/%3E%3Cpath d=%27M176 240v64c0 24 32 48 80 48s80-24 80-48v-64%27 stroke=%27white%27 stroke-width=%2720%27 fill=%27none%27/%3E%3C/svg%3E","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}' />
@@ -116,13 +118,8 @@ img{max-width:100%;display:block}
 .auth-card{width:100%;max-width:420px}
 .auth-card h2{font-size:26px;font-weight:800;margin-bottom:6px}
 .auth-card .sub{color:var(--text-soft);margin-bottom:24px}
-.demo-creds{display:none}
-.demo-creds code{display:none}
-/* Payment method selection */
-.pay-method{transition:all .2s ease;border:2px solid var(--border)}
-.pay-method:hover{border-color:var(--primary)}
-.pay-method.selected{background:linear-gradient(135deg,var(--primary-soft),rgba(139,92,246,.12));border-color:var(--primary);box-shadow:0 0 0 3px rgba(99,102,241,.18);transform:translateY(-2px)}
-.pay-method.selected::after{content:"✓";position:absolute;top:6px;right:8px;background:var(--primary);color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700}
+.demo-creds{background:var(--primary-soft);border:1px dashed var(--primary);border-radius:var(--radius-sm);padding:12px;margin-top:16px;font-size:12.5px}
+.demo-creds code{background:rgba(0,0,0,.06);padding:2px 6px;border-radius:4px;font-size:12px}
 .divider{display:flex;align-items:center;gap:10px;margin:18px 0;color:var(--muted);font-size:12px}
 .divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--border)}
 @media (max-width:900px){.auth-wrap{grid-template-columns:1fr}.auth-hero{display:none}}
@@ -312,24 +309,35 @@ const session = {
 };
 
 /* ============================================================
- * BACKEND API LAYER — Google Apps Script (Code.gs)
- * Ganti GAS_URL dengan URL Web App deploy GAS Anda.
- * apiFetch(action,payload) = async wrapper + retry exponential backoff (max 3x)
+ * BACKEND API LAYER — Google Apps Script (Code.gs)  [SECURE]
+ *
+ *  CONFIG: paste dari hasil Deploy → New Deployment → Web App
+ *  - GAS_URL     : URL Web App
+ *  - CLIENT_HMAC : sama dgn HMAC_SECRET di Script Properties (Code.gs)
+ *
+ *  Semua request ditandatangani HMAC-SHA256 (browser SubtleCrypto).
+ *  Login mengembalikan JWT — disimpan di sessionStorage (tidak persistent
+ *  di localStorage agar tidak bisa dibaca script pihak lain via XSS reflection).
  * ============================================================ */
-// Konfigurasi backend — bisa di-override via window.GAS_URL / window.HMAC_SECRET
-const GAS_URL = (typeof window!=='undefined' && window.GAS_URL) || "https://script.google.com/macros/s/AKfycbxiMo_FPh1l2dUT5lKWZXiO6TS0nDL1HTwh5g7nEMM1Sj98wHZHVwNjAuBMJFj-OGEUew/exec";
-const HMAC_SECRET = (typeof window!=='undefined' && window.HMAC_SECRET) || "8f7c2d91b5e4a8f36c7e2b1d9a4f5c8e7d3b6a9c2f1e8d4b7c5a9e2f6d8b1c4";
+// Bisa di-override runtime via window.GAS_URL / window.CLIENT_HMAC (atau window.HMAC_SECRET)
+const GAS_URL     = (typeof window!=='undefined' && window.GAS_URL) || "https://script.google.com/macros/s/AKfycbxiMo_FPh1l2dUT5lKWZXiO6TS0nDL1HTwh5g7nEMM1Sj98wHZHVwNjAuBMJFj-OGEUew/exec";
+const CLIENT_HMAC = (typeof window!=='undefined' && (window.CLIENT_HMAC || window.HMAC_SECRET)) || "8f7c2d91b5e4a8f36c7e2b1d9a4f5c8e7d3b6a9c2f1e8d4b7c5a9e2f6d8b1c4";
 const API_ENABLED = () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
 
-// HMAC-SHA256 → base64url (tanpa padding) agar cocok dengan verifyHmac_ di Code.gs
-async function _hmacSign(message, secret){
+// JWT token store — sessionStorage = auto-clear saat tab ditutup
+const tokenStore = {
+  get(){ try{ return sessionStorage.getItem('eduflow_jwt')||''; }catch(e){ return ''; } },
+  set(t){ try{ sessionStorage.setItem('eduflow_jwt', t||''); }catch(e){} },
+  clear(){ try{ sessionStorage.removeItem('eduflow_jwt'); }catch(e){} }
+};
+
+// HMAC-SHA256 (Web Crypto) → base64url
+async function _hmacSign(message){
   const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey('raw', enc.encode(secret),
-    { name:'HMAC', hash:'SHA-256' }, false, ['sign']);
-  const sigBuf = await crypto.subtle.sign('HMAC', key, enc.encode(message));
-  let bin = '';
-  const bytes = new Uint8Array(sigBuf);
-  for (let i=0; i<bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  const key = await crypto.subtle.importKey('raw', enc.encode(CLIENT_HMAC),
+    {name:'HMAC', hash:'SHA-256'}, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(message));
+  let bin=''; new Uint8Array(sig).forEach(b=>bin+=String.fromCharCode(b));
   return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 }
 
@@ -337,27 +345,26 @@ async function apiFetch(action, payload = {}, opts = {}){
   if (!API_ENABLED()) return { ok:false, offline:true, msg:'Backend offline (GAS_URL belum diset)' };
   const max = opts.retries ?? 3;
   let delay = 600, lastErr = null;
-  // sign body: backend memverifikasi HMAC dari JSON.stringify({action,data,ts})
-  const ts = Date.now();
-  let sig = '';
-  try { sig = await _hmacSign(JSON.stringify({action, data:payload, ts}), HMAC_SECRET); }
-  catch(e){ console.warn('[apiFetch] HMAC sign gagal:', e); }
-  const bodyStr = JSON.stringify({ action, data: payload, ts, sig });
   for (let i=0; i<max; i++){
     try {
       const ctrl = new AbortController();
-      const tid = setTimeout(()=>ctrl.abort(), opts.timeout || 20000);
+      const tid = setTimeout(()=>ctrl.abort(), opts.timeout || 30000);
+      const body = { action, data: payload, ts: Date.now(), token: tokenStore.get() };
+      // signed envelope: sig hanya melindungi {action,data,ts}
+      const toSign = JSON.stringify({action: body.action, data: body.data, ts: body.ts});
+      body.sig = await _hmacSign(toSign);
       const res = await fetch(GAS_URL, {
         method:'POST',
-        // text/plain agar tidak memicu CORS preflight ke GAS
-        headers:{'Content-Type':'text/plain;charset=utf-8'},
-        body: bodyStr,
+        headers:{'Content-Type':'text/plain;charset=utf-8'}, // hindari preflight
+        body: JSON.stringify(body),
         redirect:'follow',
         signal: ctrl.signal
       });
       clearTimeout(tid);
       if (!res.ok) throw new Error('HTTP '+res.status);
       const json = await res.json();
+      // server boleh mengembalikan token baru (login/register)
+      if (json && json.token) tokenStore.set(json.token);
       return json;
     } catch(err){
       lastErr = err;
@@ -368,7 +375,7 @@ async function apiFetch(action, payload = {}, opts = {}){
   return { ok:false, offline:true, msg:'Tidak dapat terhubung ke server' };
 }
 
-// fire-and-forget: kirim ke backend tanpa block UI, log saja kalau gagal
+// fire-and-forget
 function apiSync(action, payload){
   if (!API_ENABLED()) return;
   apiFetch(action, payload, {retries:2}).catch(()=>{});
@@ -394,7 +401,6 @@ function fileToDataUrl(file){
     const r = new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(file);
   });
 }
-// Convert a Blob slice to base64 (no data: prefix)
 function blobToBase64(blob){
   return new Promise((res,rej)=>{
     const r = new FileReader();
@@ -404,40 +410,37 @@ function blobToBase64(blob){
   });
 }
 async function uploadToDrive(file, meta={}){
-  // Chunked upload to Google Drive via GAS — no size limit.
-  // returns { ok, data:{ fileId, url, viewUrl, size, mime, type, fallback? } }
+  // Chunked upload ke Google Drive via GAS — tanpa batas ukuran (semua file wajib ke Drive ID).
   const type = file.type.startsWith('video')?'video':file.type.startsWith('audio')?'audio':file.type.startsWith('image')?'image':'pdf';
   if (!API_ENABLED()){
-    if (file.size > 8*1024*1024) return { ok:false, msg:'GAS_URL belum diset & file >8MB tidak bisa disimpan lokal.' };
-    const dataUrl = await fileToDataUrl(file);
-    return { ok:true, data:{ fileId:'local_'+uid('f'), url:dataUrl, viewUrl:dataUrl, size:file.size, mime:file.type, type, fallback:true } };
+    return { ok:false, msg:'Backend (GAS_URL) belum dikonfigurasi. File hanya bisa diupload setelah backend aktif.' };
   }
   try{
-    const CHUNK = 4 * 1024 * 1024; // 4MB per chunk (base64-safe under GAS payload limit)
+    const CHUNK = 4 * 1024 * 1024; // 4MB per potongan (aman di bawah batas payload GAS)
     const total = Math.max(1, Math.ceil(file.size / CHUNK));
-    const uploadId = 'up_' + Date.now() + '_' + Math.floor(Math.random()*1e6);
-    // Small files → single shot (backward-compatible path)
+    // File kecil → single shot (kompatibel mundur)
     if (file.size <= CHUNK){
       const base64 = await blobToBase64(file);
       const r = await apiFetch('uploadFile', {
-        filename: file.name, mime: file.type, base64, type,
+        filename: file.name, mime: file.type || 'application/octet-stream', base64, type,
         title: meta.title || file.name, description: meta.description || ''
-      }, { timeout: 90000, retries: 2 });
+      }, { timeout: 180000, retries: 2 });
       if (r && r.ok && r.data){ r.data.type = r.data.type || type; r.data.mime = r.data.mime || file.type; return r; }
-      return { ok:false, msg: r?.msg || 'Upload ke Drive gagal' };
+      return { ok:false, msg: (r && r.msg) || 'Upload ke Drive gagal' };
     }
-    // Chunked path
+    // File besar → chunked
+    const uploadId = 'up_' + Date.now() + '_' + Math.floor(Math.random()*1e6);
     for (let i=0; i<total; i++){
       const start = i*CHUNK;
       const slice = file.slice(start, Math.min(start+CHUNK, file.size));
       const base64 = await blobToBase64(slice);
       const r = await apiFetch('uploadFileChunk', {
         uploadId, index: i, total,
-        filename: file.name, mime: file.type, type,
+        filename: file.name, mime: file.type || 'application/octet-stream', type,
         title: meta.title || file.name, description: meta.description || '',
         base64
-      }, { timeout: 120000, retries: 3 });
-      if (!r || !r.ok) return { ok:false, msg: r?.msg || ('Chunk '+(i+1)+'/'+total+' gagal') };
+      }, { timeout: 180000, retries: 3 });
+      if (!r || !r.ok) return { ok:false, msg: (r && r.msg) || ('Chunk '+(i+1)+'/'+total+' gagal') };
       if (typeof meta.onProgress === 'function'){
         try { meta.onProgress(Math.round(((i+1)/total)*100), i+1, total); } catch(_){}
       }
@@ -631,7 +634,7 @@ function seed(){
       id:'u'+(i+1),
       name:nm,
       email:`peserta${i+1}@lms.com`,
-      password:'Peserta123!',
+      // PASSWORD TIDAK DISIMPAN DI FRONTEND — login via backend
       role:'student',
       joinedAt: Date.now()-Math.floor(Math.random()*180)*86400000,
       status: i%9===0?'inactive':'active',
@@ -639,12 +642,12 @@ function seed(){
       wishlist:[],
     });
   }
-  // Admin + peserta default
+  // Hanya 3 akun DEMO yg simpan password lokal — bisa disembunyikan via Settings > Keamanan > showDemo
   const users = [
-    {id:'admin1',name:'Administrator',email:'admin@lms.com',password:'Admin123!',role:'admin',joinedAt:Date.now()-86400000*365,status:'active',enrolled:[],wishlist:[]},
+    {id:'admin1',name:'Administrator',email:'admin@lms.com',password:'Admin123!',role:'admin',joinedAt:Date.now()-86400000*365,status:'active',enrolled:[],wishlist:[],_demo:true},
     {id:'student0',name:'Peserta Demo',email:'peserta@lms.com',password:'Peserta123!',role:'student',joinedAt:Date.now()-86400000*30,status:'active',
       enrolled:[{courseId:'k1',progress:65,completedModules:[]},{courseId:'k5',progress:100,completedModules:[]},{courseId:'k7',progress:25,completedModules:[]}],
-      wishlist:['k3','k10']},
+      wishlist:['k3','k10'],_demo:true},
     ...students,
   ];
 
@@ -685,9 +688,10 @@ function seed(){
   const settings={
     general:{name:'EduFlow LMS', tagline:'Belajar Tanpa Batas', logo:'🎓'},
     seo:{title:'EduFlow LMS - Platform Kursus Online',desc:'Belajar skill digital dari para ahli.'},
-    payment:{midtransKey:'SB-Mid-server-XXXXXXX',xenditKey:'xnd_demo_key',stripeKey:'pk_test_demo',paypalKey:'demo_paypal'},
+    // API keys TIDAK lagi disimpan di frontend — ada di Script Properties GAS.
+    payment:{midtransKey:'***di-Script-Properties***',xenditKey:'***',stripeKey:'***',paypalKey:'***'},
     smtp:{host:'smtp.gmail.com',port:587,user:'noreply@lms.com'},
-    security:{sessionTimeout:60,minPwLen:8},
+    security:{sessionTimeout:60,minPwLen:8,showDemo:true},
   };
 
   const calendar=[
@@ -750,53 +754,62 @@ function checkLogin(){
 }
 
 function login(email, password, remember){
-  // verifikasi lokal (fallback offline)
+  // 1) JIKA backend aktif → server adalah sumber kebenaran (password tidak dicek lokal)
+  if (API_ENABLED()){
+    // async path: caller akan menerima Promise via window.loginAsync; fungsi sync ini
+    // hanya dipakai bila backend offline.
+    return loginAsync(email, password, remember);
+  }
+  // 2) Offline / demo mode → cek lokal terbatas (hanya akun bertanda _demo)
   const users = DB.get('users',[]);
-  let u = users.find(x=>x.email.toLowerCase()===email.toLowerCase() && x.password===password);
-
-  // === Login Instruktur: pakai data dari DB.instructors ===
+  let u = users.find(x=>x._demo && x.email.toLowerCase()===email.toLowerCase() && x.password===password);
   if(!u){
     const ins = DB.get('instructors',[]).find(x=>x.email.toLowerCase()===email.toLowerCase());
     if(ins){
       const pw = ins.password || 'Instruktur123!';
       if(password === pw){
         u = { id:ins.id, name:ins.name, email:ins.email, role:'instructor', status:'active',
-              expertise:ins.expertise||'', bio:ins.bio||'', permissions:ins.permissions||{}, joinedAt:ins.joinedAt||Date.now() };
+              expertise:ins.expertise||'', bio:ins.bio||'', permissions:ins.permissions||{}, joinedAt:ins.joinedAt||Date.now(), _demo:true };
       }
     }
   }
-
-  if (API_ENABLED()){
-    apiFetch('login',{email,password}).then(r=>{
-      if (r && r.ok && r.user){
-        const us = DB.get('users',[]); const ix = us.findIndex(x=>x.id===r.user.id);
-        if (ix>=0) us[ix] = {...us[ix], ...r.user}; else us.push({...r.user, password:password});
-        DB.set('users',us);
-        if (!state.user){
-          session.set({userId:r.user.id, loginAt:Date.now(), remember:!!remember});
-          state.user = us.find(x=>x.id===r.user.id);
-          toast('Login via server berhasil','success'); render();
-        }
-      }
-    }).catch(()=>{});
-  }
-  if(!u) return {ok:false,msg:'Email atau password salah'};
+  if(!u) return {ok:false,msg:'Backend offline. Hanya akun demo yang bisa login.'};
   if(u.status==='inactive') return {ok:false,msg:'Akun dinonaktifkan'};
   session.set({userId:u.id, loginAt:Date.now(), remember:!!remember});
   state.user = u;
   return {ok:true};
 }
-function logout(){ session.clear(); state.user=null; render(); }
+async function loginAsync(email, password, remember){
+  const r = await apiFetch('login', {email, password});
+  if (!r || !r.ok) return {ok:false, msg:(r && r.msg) || 'Login gagal'};
+  // simpan profil minimal (TANPA password) ke users cache
+  const us = DB.get('users',[]); const ix = us.findIndex(x=>x.id===r.user.id);
+  const safe = Object.assign({}, r.user); delete safe.password;
+  if (ix>=0) us[ix] = {...us[ix], ...safe}; else us.push(safe);
+  DB.set('users', us);
+  session.set({userId:r.user.id, loginAt:Date.now(), remember:!!remember});
+  state.user = safe;
+  return {ok:true};
+}
+function logout(){ session.clear(); tokenStore.clear(); state.user=null; render(); }
 function register(data){
+  if (API_ENABLED()) return registerAsync(data);
+  // offline demo: simpan ke local saja (tetap tanpa kirim plaintext keluar)
   const users = DB.get('users',[]);
   if(users.some(u=>u.email.toLowerCase()===data.email.toLowerCase())) return {ok:false,msg:'Email sudah terdaftar'};
   const minLen = DB.get('settings').security?.minPwLen||8;
   if(data.password.length < minLen) return {ok:false,msg:`Password minimal ${minLen} karakter`};
-  const nu = {id:uid('u'),name:data.name,email:data.email,password:data.password,role:'student',joinedAt:Date.now(),status:'active',enrolled:[],wishlist:[]};
+  const nu = {id:uid('u'),name:data.name,email:data.email,password:data.password,role:'student',joinedAt:Date.now(),status:'active',enrolled:[],wishlist:[],_demo:true};
   users.push(nu); DB.set('users',users);
-  // simpan juga ke backend (server akan hash password & cek duplikasi)
-  apiSync('register',{name:data.name,email:data.email,password:data.password});
   return {ok:true,user:nu};
+}
+async function registerAsync(data){
+  const r = await apiFetch('register', {name:data.name, email:data.email, password:data.password});
+  if (!r || !r.ok) return {ok:false, msg:(r && r.msg) || 'Registrasi gagal'};
+  const us = DB.get('users',[]);
+  const safe = Object.assign({}, r.user); delete safe.password;
+  us.push(safe); DB.set('users', us);
+  return {ok:true, user:safe};
 }
 
 /* ============================================================
@@ -860,6 +873,12 @@ function loginForm(){
       <button class="btn primary full" type="submit">Masuk</button>
       <div class="divider">atau</div>
       <button class="btn ghost full" type="button" data-go="register">Buat akun baru</button>
+      ${(DB.get('settings').security?.showDemo!==false) ? `<div class="demo-creds">
+        <b>🔐 Akun Demo:</b><br>
+        Admin: <code>admin@lms.com</code> / <code>Admin123!</code><br>
+        Peserta: <code>peserta@lms.com</code> / <code>Peserta123!</code><br>
+        Instruktur: <code>instruktur@lms.com</code> / <code>Instruktur123!</code>
+      </div>` : ''}
     </form>
   `;
 }
@@ -908,7 +927,7 @@ function bindAuth(mode){
   $$('[data-go]').forEach(a=>a.onclick=e=>{e.preventDefault();renderAuth(a.dataset.go);});
 
   if(mode==='login'){
-    $('#loginForm').onsubmit = e=>{
+    $('#loginForm').onsubmit = async e=>{
       e.preventDefault();
       const f = e.target;
       let ok=true;
@@ -916,13 +935,17 @@ function bindAuth(mode){
       showErr('email', !/^\S+@\S+\.\S+$/.test(f.email.value)?'Email tidak valid':'');
       showErr('password', f.password.value.length<6?'Password minimal 6 karakter':'');
       if(!ok) return;
-      const r = login(f.email.value.trim(), f.password.value, f.remember.checked);
-      if(!r.ok){ toast(r.msg,'danger'); return; }
-      toast('Login berhasil','success');
-      render();
+      const btn = f.querySelector('button[type="submit"]'); if(btn){btn.disabled=true; btn.textContent='Memproses…';}
+      try {
+        const res = login(f.email.value.trim(), f.password.value, f.remember.checked);
+        const r = (res && typeof res.then === 'function') ? await res : res;
+        if(!r.ok){ toast(r.msg,'danger'); return; }
+        toast('Login berhasil','success');
+        render();
+      } finally { if(btn){btn.disabled=false; btn.textContent='Masuk';} }
     };
   } else if(mode==='register'){
-    $('#regForm').onsubmit = e=>{
+    $('#regForm').onsubmit = async e=>{
       e.preventDefault();
       const f = e.target;
       let ok=true;
@@ -932,10 +955,14 @@ function bindAuth(mode){
       showErr('password', f.password.value.length<8?'Minimal 8 karakter':'');
       showErr('tos', !f.tos.checked?'Wajib disetujui':'');
       if(!ok) return;
-      const r = register({name:f.name.value.trim(),email:f.email.value.trim(),password:f.password.value});
-      if(!r.ok){ toast(r.msg,'danger'); return; }
-      toast('Pendaftaran berhasil! Silakan masuk.','success');
-      renderAuth('login');
+      const btn = f.querySelector('button[type="submit"]'); if(btn){btn.disabled=true; btn.textContent='Memproses…';}
+      try {
+        const res = register({name:f.name.value.trim(),email:f.email.value.trim(),password:f.password.value});
+        const r = (res && typeof res.then === 'function') ? await res : res;
+        if(!r.ok){ toast(r.msg,'danger'); return; }
+        toast('Pendaftaran berhasil! Silakan masuk.','success');
+        renderAuth('login');
+      } finally { if(btn){btn.disabled=false; btn.textContent='Daftar Sekarang';} }
     };
   } else {
     $('#forgotForm').onsubmit = e=>{
@@ -2473,19 +2500,41 @@ PAGES.transactions = el => {
         ${['all','success','pending','failed'].map(s=>`<button data-f="${s}" class="${filter===s?'active':''}">${s==='all'?'Semua':s.charAt(0).toUpperCase()+s.slice(1)}</button>`).join('')}
       </div>
       <div class="table-wrap"><table class="table">
-        <thead><tr><th>ID</th><th>Peserta</th><th>Kursus</th><th>Gateway</th><th>Jumlah</th><th>Status</th><th>Tanggal</th><th></th></tr></thead>
-        <tbody>${data.map(t=>`
-          <tr><td><code style="font-size:11px">${t.id}</code></td><td>${esc(t.userName)}</td><td>${esc(t.courseTitle)}</td><td><span class="badge">${t.gateway}</span></td><td><b>${fmtRp(t.amount)}</b></td>
+        <thead><tr><th>ID</th><th>Peserta</th><th>Kursus</th><th>Gateway</th><th>Jumlah</th><th>Status</th><th>Tanggal</th><th>Aksi</th></tr></thead>
+        <tbody>${data.length?data.map(t=>{
+          const isManual = t.gateway==='qris' || t.gateway==='bank';
+          const canSuccess = isManual && t.status==='pending';
+          const canRefund = t.status==='success';
+          const actions = [
+            canSuccess?`<button class="btn sm success" data-ok="${t.id}">✓ Success</button>`:'',
+            canRefund?`<button class="btn sm danger" data-rf="${t.id}">↩ Refund</button>`:''
+          ].filter(Boolean).join(' ') || '<span class="muted text-sm">-</span>';
+          return `<tr><td><code style="font-size:11px">${t.id}</code></td><td>${esc(t.userName)}</td><td>${esc(t.courseTitle)}</td><td><span class="badge">${t.gateway}</span></td><td><b>${fmtRp(t.amount)}</b></td>
           <td><span class="badge ${t.status==='success'?'success':t.status==='pending'?'warn':'danger'}">${t.status}</span></td>
           <td>${fmtDate(t.createdAt)}</td>
-          <td>${t.status==='success'?'<button class="btn sm ghost" data-rf="'+t.id+'">Refund</button>':''}</td></tr>
-        `).join('')}</tbody>
+          <td>${actions}</td></tr>`;
+        }).join(''):'<tr><td colspan="8"><div class="empty">Belum ada transaksi</div></td></tr>'}</tbody>
       </table></div>
     `;
     el.querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{filter=b.dataset.f;render();});
-    el.querySelectorAll('[data-rf]').forEach(b=>b.onclick=()=>confirmModal('Proses refund?',()=>{
+    el.querySelectorAll('[data-ok]').forEach(b=>b.onclick=()=>confirmModal('Tandai transaksi ini SUCCESS & aktifkan akses kursus peserta?',()=>{
+      const ts=DB.get('transactions',[]); const ix=ts.findIndex(x=>x.id===b.dataset.ok);
+      if(ix<0) return;
+      const t = ts[ix]; t.status='success';
+      const us=DB.get('users',[]); const ui=us.findIndex(u=>u.id===t.userId);
+      if(ui>=0 && !us[ui].enrolled.some(e=>e.courseId===t.courseId)){
+        us[ui].enrolled.push({courseId:t.courseId,progress:0,completedModules:[]});
+        DB.set('users',us); apiSync('syncPush',{users:us});
+        if(state.user && state.user.id===us[ui].id) state.user=us[ui];
+      }
+      DB.set('transactions',ts); apiSync('syncPush',{transactions:ts});
+      toast('Transaksi dikonfirmasi success','success'); render();
+    }));
+    el.querySelectorAll('[data-rf]').forEach(b=>b.onclick=()=>confirmModal('Proses refund transaksi ini?',()=>{
       const ts=DB.get('transactions',[]); const ix=ts.findIndex(x=>x.id===b.dataset.rf);
-      ts[ix].status='refund'; DB.set('transactions',ts); toast('Refund diproses','success'); render();
+      if(ix<0) return;
+      ts[ix].status='refund'; DB.set('transactions',ts); apiSync('syncPush',{transactions:ts});
+      toast('Refund diproses','success'); render();
     }));
   };
   render();
@@ -3819,8 +3868,8 @@ function checkout(items, total){
       </div>
       <div class="field"><label>Nomor HP</label><input class="input" name="phone" required pattern="[0-9+\\-\\s]{8,}"/></div>
       <div class="field"><label>Metode Pembayaran</label>
-        <div class="grid pay-methods" style="grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px">
-          ${methods.map((g,i)=>`<label class="card hover pay-method ${i===0?'selected':''}" style="text-align:center;cursor:pointer;padding:14px;position:relative;border-radius:12px">
+        <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px">
+          ${methods.map((g,i)=>`<label class="card hover" style="text-align:center;cursor:pointer;padding:14px;position:relative">
             <input type="radio" name="gw" value="${g.id}" ${i===0?'checked':''} style="display:none"/>
             <div style="font-size:30px">${g.icon}</div>
             <b style="font-size:12px;display:block;margin-top:4px">${esc(g.name)}</b>
@@ -3832,15 +3881,6 @@ function checkout(items, total){
       <div class="flex justify-between text-lg" style="font-weight:800;color:var(--primary)"><span>Total Bayar</span><span>${fmtRp(total)}</span></div>
     </form>`,
     foot:`<button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn primary" id="payBtn">Bayar Sekarang</button>`
-  });
-
-  // Highlight selected payment method
-  document.querySelectorAll('.pay-methods .pay-method').forEach(card=>{
-    card.addEventListener('click',()=>{
-      document.querySelectorAll('.pay-methods .pay-method').forEach(c=>c.classList.remove('selected'));
-      card.classList.add('selected');
-      const r = card.querySelector('input[type=radio]'); if(r){ r.checked = true; }
-    });
   });
 
   $('#payBtn').onclick=async ()=>{
