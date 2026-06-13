@@ -295,18 +295,45 @@ canvas.chart{width:100%;max-height:280px}
  * Vanilla HTML / CSS / JS only. No external libraries.
  * ============================================================ */
 
-/* ---------------- STORAGE LAYER ---------------- */
+/* ---------------- STORAGE LAYER ----------------
+ * IN-MEMORY ONLY — TIDAK menggunakan localStorage.
+ * Sumber kebenaran ada di backend (Google Apps Script + Spreadsheet/Drive).
+ * Cache di-hydrate via pullFromBackend(); setiap DB.set() utk key yg di-sync
+ * otomatis push ke backend (debounced) supaya semua perangkat konsisten.
+ * Session JWT tetap di sessionStorage (auto clear saat tab ditutup).
+ * ============================================================ */
+const _MEM = Object.create(null);
+// Key data yg di-sinkron ke spreadsheet via syncPush (selain itu hanya cache UI)
+const SYNC_KEYS = new Set([
+  'users','courses','categories','instructors','transactions','coupons',
+  'reviews','threads','calendar','notifications','affiliates','memberships',
+  'broadcasts','materials','certificates','settings','paymentSettings','certTemplate'
+]);
+const _pushQueue = {};
+let _pushTimer = null;
+function _schedulePush(key, val){
+  if (!SYNC_KEYS.has(key)) return;
+  if (typeof API_ENABLED === 'function' && !API_ENABLED()) return;
+  _pushQueue[key] = val;
+  if (_pushTimer) clearTimeout(_pushTimer);
+  _pushTimer = setTimeout(()=>{
+    const payload = Object.assign({}, _pushQueue);
+    for (const k in _pushQueue) delete _pushQueue[k];
+    _pushTimer = null;
+    try { apiSync('syncPush', payload); } catch(_){}
+  }, 400);
+}
 const DB = {
-  k:'eduflow_v1',
-  load(){ try{ return JSON.parse(localStorage.getItem(this.k)||'{}'); }catch(e){ return {}; } },
-  save(d){ localStorage.setItem(this.k, JSON.stringify(d)); },
-  get(key, def){ const d=this.load(); return key in d? d[key] : def; },
-  set(key, val){ const d=this.load(); d[key]=val; this.save(d); },
+  get(key, def){ return (key in _MEM) ? _MEM[key] : def; },
+  set(key, val){ _MEM[key] = val; _schedulePush(key, val); },
+  // kompatibilitas API lama (no-op)
+  load(){ return Object.assign({}, _MEM); },
+  save(d){ if (d && typeof d==='object') Object.assign(_MEM, d); },
 };
 const session = {
-  get(){ try{return JSON.parse(localStorage.getItem('eduflow_session')||'null');}catch(e){return null;} },
-  set(s){ localStorage.setItem('eduflow_session', JSON.stringify(s)); },
-  clear(){ localStorage.removeItem('eduflow_session'); }
+  get(){ try{return JSON.parse(sessionStorage.getItem('eduflow_session')||'null');}catch(e){return null;} },
+  set(s){ try{ sessionStorage.setItem('eduflow_session', JSON.stringify(s)); }catch(e){} },
+  clear(){ try{ sessionStorage.removeItem('eduflow_session'); }catch(e){} }
 };
 
 /* ============================================================
@@ -321,7 +348,7 @@ const session = {
  *  di localStorage agar tidak bisa dibaca script pihak lain via XSS reflection).
  * ============================================================ */
 // Bisa di-override runtime via window.GAS_URL / window.CLIENT_HMAC (atau window.HMAC_SECRET)
-const GAS_URL     = (typeof window!=='undefined' && window.GAS_URL) || "https://script.google.com/macros/s/AKfycbxrVbpFLqN99YflooU0i_KBsHb1AZ6kuOGryClHFJaXN5E3FerLRbq5EsMETZFxE9sdwg/exec";
+const GAS_URL     = (typeof window!=='undefined' && window.GAS_URL) || "https://script.google.com/macros/s/AKfycbzHx-hYuDnyH3G3E-sIBWpHONoIXhfsi4a-Qocc1bGZJfwMNlPPq0Cs_qmTqIEJ_i89yA/exec";
 const CLIENT_HMAC = (typeof window!=='undefined' && (window.CLIENT_HMAC || window.HMAC_SECRET)) || "8f7c2d91b5e4a8f36c7e2b1d9a4f5c8e7d3b6a9c2f1e8d4b7c5a9e2f6d8b1c4";
 const API_ENABLED = () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
 
@@ -418,16 +445,16 @@ function blobToBase64(blob){
    - localStorage menyimpan progress untuk hint resume.
 */
 const CHUNK_SIZE = (window.CHUNK_SIZE_MB ? Number(window.CHUNK_SIZE_MB) : 4) * 1024 * 1024;
-const RESUME_KEY = 'chunkUpload.sessions.v2';
+const _RESUME_MEM = Object.create(null);
 
 function _genUploadId(file){
   const sig = `${file.name}|${file.size}|${file.lastModified}`;
   let h = 0; for (let i=0;i<sig.length;i++){ h = (h*31 + sig.charCodeAt(i))|0; }
   return 'u' + Math.abs(h).toString(36) + '_' + file.size.toString(36);
 }
-function _resumeRead(){ try{ return JSON.parse(localStorage.getItem(RESUME_KEY)||'{}'); }catch{ return {}; } }
-function _resumeSave(id, info){ const m = _resumeRead(); m[id] = Object.assign({}, m[id]||{}, info, {ts:Date.now()}); localStorage.setItem(RESUME_KEY, JSON.stringify(m)); }
-function _resumeDrop(id){ const m = _resumeRead(); delete m[id]; localStorage.setItem(RESUME_KEY, JSON.stringify(m)); }
+function _resumeRead(){ return Object.assign({}, _RESUME_MEM); }
+function _resumeSave(id, info){ _RESUME_MEM[id] = Object.assign({}, _RESUME_MEM[id]||{}, info, {ts:Date.now()}); }
+function _resumeDrop(id){ delete _RESUME_MEM[id]; }
 
 async function uploadToDrive(file, meta={}){
   // SEMUA file → Google Drive via chunk upload. Tidak ada fallback localStorage.
@@ -539,8 +566,8 @@ async function pullFromBackend(silent){
     };
     Object.entries(map).forEach(([k,sk])=>{
       if (r.data[k] !== undefined && r.data[k] !== null) {
-        if (Array.isArray(r.data[k])) { if (r.data[k].length) DB.set(sk, r.data[k]); }
-        else DB.set(sk, r.data[k]);
+        // Backend = single source of truth → set apa adanya (termasuk array kosong)
+        _MEM[sk] = r.data[k];
       }
     });
     // SCAN Drive: file yang diupload manual ke Drive ID akan otomatis muncul sbg materi
@@ -1151,8 +1178,9 @@ PAGES.dashboard = el => {
   const courses = DB.get('courses',[]);
   const users = DB.get('users',[]);
   const trx = DB.get('transactions',[]);
+  const _amt = t => (t.amount!=null? t.amount : (t.total!=null? t.total : 0));
   const success = trx.filter(t=>t.status==='success');
-  const rev = success.reduce((a,t)=>a+t.amount,0);
+  const rev = success.reduce((a,t)=>a+_amt(t),0);
   el.innerHTML = `
     <div class="page-head">
       <div><h2>Selamat datang, ${esc(state.user.name)} 👋</h2><p>Berikut ringkasan platform Anda hari ini.</p></div>
@@ -1186,7 +1214,7 @@ PAGES.dashboard = el => {
         <b class="text-lg mb-2" style="display:block">Transaksi Terbaru</b>
         <div class="table-wrap"><table class="table">
           <thead><tr><th>ID</th><th>Peserta</th><th>Kursus</th><th>Status</th></tr></thead>
-          <tbody>${trx.slice(0,6).map(t=>`<tr><td><code style="font-size:11px">${t.id}</code></td><td>${esc(t.userName)}</td><td>${esc(t.courseTitle)}</td><td><span class="badge ${t.status==='success'?'success':t.status==='pending'?'warn':'danger'}">${t.status}</span></td></tr>`).join('')}</tbody>
+          <tbody>${trx.slice(0,6).map(t=>{ const ttl=t.courseTitle||(Array.isArray(t.courseTitles)?t.courseTitles.join(', '):''); return `<tr><td><code style="font-size:11px">${t.id}</code></td><td>${esc(t.userName||'')}</td><td>${esc(ttl)}</td><td><span class="badge ${t.status==='success'?'success':t.status==='pending'?'warn':'danger'}">${t.status}</span></td></tr>`;}).join('')}</tbody>
         </table></div>
       </div>
       <div class="card">
@@ -1209,7 +1237,7 @@ function genLast7Days(trx){
   for(let i=6;i>=0;i--){
     const d=new Date(); d.setDate(d.getDate()-i); d.setHours(0,0,0,0);
     const next=d.getTime()+86400000;
-    const tot = trx.filter(t=>t.createdAt>=d.getTime()&&t.createdAt<next).reduce((a,t)=>a+t.amount,0);
+    const tot = trx.filter(t=>t.createdAt>=d.getTime()&&t.createdAt<next).reduce((a,t)=>a+(t.amount!=null?t.amount:(t.total!=null?t.total:0)),0);
     days.push({label:['Min','Sen','Sel','Rab','Kam','Jum','Sab'][d.getDay()], v: tot||Math.floor(Math.random()*2000000)});
   }
   return days;
@@ -2492,7 +2520,9 @@ PAGES.transactions = el => {
             canSuccess?`<button class="btn sm success" data-ok="${t.id}">✓ Success</button>`:'',
             canRefund?`<button class="btn sm danger" data-rf="${t.id}">↩ Refund</button>`:''
           ].filter(Boolean).join(' ') || '<span class="muted text-sm">-</span>';
-          return `<tr><td><code style="font-size:11px">${t.id}</code></td><td>${esc(t.userName)}</td><td>${esc(t.courseTitle)}</td><td><span class="badge">${t.gateway}</span></td><td><b>${fmtRp(t.amount)}</b></td>
+          const title = t.courseTitle || (Array.isArray(t.courseTitles)? t.courseTitles.join(', ') : '');
+          const amt = t.amount!=null? t.amount : (t.total!=null? t.total : 0);
+          return `<tr><td><code style="font-size:11px">${t.id}</code></td><td>${esc(t.userName||'')}</td><td>${esc(title)}</td><td><span class="badge">${esc(t.gateway||'')}</span></td><td><b>${fmtRp(amt)}</b></td>
           <td><span class="badge ${t.status==='success'?'success':t.status==='pending'?'warn':'danger'}">${t.status}</span></td>
           <td>${fmtDate(t.createdAt)}</td>
           <td>${actions}</td></tr>`;
@@ -2500,24 +2530,20 @@ PAGES.transactions = el => {
       </table></div>
     `;
     el.querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{filter=b.dataset.f;render();});
-    el.querySelectorAll('[data-ok]').forEach(b=>b.onclick=()=>confirmModal('Tandai transaksi ini SUCCESS & aktifkan akses kursus peserta?',()=>{
-      const ts=DB.get('transactions',[]); const ix=ts.findIndex(x=>x.id===b.dataset.ok);
-      if(ix<0) return;
-      const t = ts[ix]; t.status='success';
-      const us=DB.get('users',[]); const ui=us.findIndex(u=>u.id===t.userId);
-      if(ui>=0 && !us[ui].enrolled.some(e=>e.courseId===t.courseId)){
-        us[ui].enrolled.push({courseId:t.courseId,progress:0,completedModules:[]});
-        DB.set('users',us); apiSync('syncPush',{users:us});
-        if(state.user && state.user.id===us[ui].id) state.user=us[ui];
-      }
-      DB.set('transactions',ts); apiSync('syncPush',{transactions:ts});
-      toast('Transaksi dikonfirmasi success','success'); render();
+    el.querySelectorAll('[data-ok]').forEach(b=>b.onclick=()=>confirmModal('Tandai transaksi ini SUCCESS & aktifkan akses kursus peserta?', async ()=>{
+      const r = await apiFetch('confirmPayment', { id: b.dataset.ok });
+      if (!r || !r.ok){ toast('Gagal: '+((r&&r.msg)||'unknown'),'danger'); return; }
+      await pullFromBackend(true);
+      toast('Transaksi dikonfirmasi success','success');
+      if (state.user){ const u=(DB.get('users',[])||[]).find(x=>x.id===state.user.id); if(u) state.user=u; }
+      PAGES.transactions(el);
     }));
-    el.querySelectorAll('[data-rf]').forEach(b=>b.onclick=()=>confirmModal('Proses refund transaksi ini?',()=>{
-      const ts=DB.get('transactions',[]); const ix=ts.findIndex(x=>x.id===b.dataset.rf);
-      if(ix<0) return;
-      ts[ix].status='refund'; DB.set('transactions',ts); apiSync('syncPush',{transactions:ts});
-      toast('Refund diproses','success'); render();
+    el.querySelectorAll('[data-rf]').forEach(b=>b.onclick=()=>confirmModal('Proses refund transaksi ini?', async ()=>{
+      const r = await apiFetch('refundPayment', { id: b.dataset.rf });
+      if (!r || !r.ok){ toast('Gagal: '+((r&&r.msg)||'unknown'),'danger'); return; }
+      await pullFromBackend(true);
+      toast('Refund diproses','success');
+      PAGES.transactions(el);
     }));
   };
   render();
@@ -3217,7 +3243,7 @@ PAGES.reports = el => {
   el.innerHTML = `
     <div class="page-head"><div><h2>Laporan</h2><p>Analitik & insight platform</p></div></div>
     <div class="stats">
-      ${statCard('Pendapatan',fmtRp(trx.reduce((a,b)=>a+b.amount,0)),'💰','')}
+      ${statCard('Pendapatan',fmtRp(trx.reduce((a,b)=>a+(b.amount!=null?b.amount:(b.total!=null?b.total:0)),0)),'💰','')}
       ${statCard('Penjualan',trx.length,'🛒','')}
       ${statCard('Kursus Terlaris',courses.sort((a,b)=>b.enrolled-a.enrolled)[0]?.title||'-','🏆','')}
       ${statCard('Peserta Aktif',DB.get('users',[]).filter(u=>u.status==='active'&&u.role==='student').length,'🔥','')}
@@ -3787,19 +3813,26 @@ PAGES.mycerts = el => {
 PAGES.mytrx = el => {
   const trx = DB.get('transactions',[]).filter(t=>t.userId===state.user.id).sort((a,b)=>b.createdAt-a.createdAt);
   el.innerHTML = `
-    <div class="page-head"><div><h2>Transaksi Saya</h2><p>${trx.length} transaksi</p></div></div>
+    <div class="page-head"><div><h2>Transaksi Saya</h2><p>${trx.length} transaksi</p></div><button class="btn ghost sm" id="refTrx">↻ Refresh</button></div>
     <div class="table-wrap"><table class="table">
       <thead><tr><th>ID</th><th>Kursus</th><th>Jumlah</th><th>Status</th><th>Tanggal</th><th></th></tr></thead>
-      <tbody>${trx.length?trx.map(t=>`<tr><td><code style="font-size:11px">${t.id}</code></td><td>${esc(t.courseTitle)}</td><td><b>${fmtRp(t.amount)}</b></td><td><span class="badge ${t.status==='success'?'success':t.status==='pending'?'warn':'danger'}">${t.status}</span></td><td>${fmtDate(t.createdAt)}</td><td><button class="btn sm ghost" onclick="downloadInvoice('${t.id}')">Invoice</button></td></tr>`).join(''):'<tr><td colspan="6"><div class="empty">Belum ada transaksi</div></td></tr>'}</tbody>
+      <tbody>${trx.length?trx.map(t=>{
+        const title = t.courseTitle || (Array.isArray(t.courseTitles)? t.courseTitles.join(', ') : '-');
+        const amt = t.amount!=null? t.amount : (t.total!=null? t.total : 0);
+        return `<tr><td><code style="font-size:11px">${t.id}</code></td><td>${esc(title)}</td><td><b>${fmtRp(amt)}</b></td><td><span class="badge ${t.status==='success'?'success':t.status==='pending'?'warn':'danger'}">${t.status}</span></td><td>${fmtDate(t.createdAt)}</td><td><button class="btn sm ghost" onclick="downloadInvoice('${t.id}')">Invoice</button></td></tr>`;
+      }).join(''):'<tr><td colspan="6"><div class="empty">Belum ada transaksi</div></td></tr>'}</tbody>
     </table></div>
   `;
+  const rb=el.querySelector('#refTrx'); if(rb) rb.onclick=async()=>{ await pullFromBackend(true); PAGES.mytrx(el); };
 };
 window.downloadInvoice = (tid)=>{
-  const t = DB.get('transactions',[]).find(x=>x.id===tid);
+  const t = DB.get('transactions',[]).find(x=>x.id===tid); if(!t) return;
+  const title = t.courseTitle || (Array.isArray(t.courseTitles)? t.courseTitles.join(', ') : '-');
+  const amt = t.amount!=null? t.amount : (t.total!=null? t.total : 0);
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${t.id}</title><style>body{font-family:Arial;padding:40px;max-width:700px;margin:auto}h1{color:#6366f1}.box{border:1px solid #e5e7eb;padding:20px;margin-top:20px;border-radius:10px}.row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eee}.total{font-size:20px;font-weight:bold;color:#6366f1}</style></head><body>
     <h1>INVOICE</h1><p><b>${t.id}</b> · ${fmtDate(t.createdAt)}</p>
-    <div class="box"><b>Pelanggan:</b> ${esc(t.userName)}<br><b>Status:</b> ${t.status}<br><b>Metode:</b> ${t.gateway}</div>
-    <div class="box"><div class="row"><span>${esc(t.courseTitle)}</span><span>${fmtRp(t.amount)}</span></div><div class="row total"><span>TOTAL</span><span>${fmtRp(t.amount)}</span></div></div>
+    <div class="box"><b>Pelanggan:</b> ${esc(t.userName||'')}<br><b>Status:</b> ${t.status}<br><b>Metode:</b> ${t.gateway||''}</div>
+    <div class="box"><div class="row"><span>${esc(title)}</span><span>${fmtRp(amt)}</span></div><div class="row total"><span>TOTAL</span><span>${fmtRp(amt)}</span></div></div>
     <p style="margin-top:30px;text-align:center;color:#666">Terima kasih atas pembelian Anda!</p><script>window.print()<\/script></body></html>`;
   const blob = new Blob([html],{type:'text/html'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='Invoice-'+t.id+'.html'; a.click();
@@ -3938,12 +3971,17 @@ function checkout(items, total){
           </div>`;
       modal({title:`Pembayaran via ${esc(method.name)}`, size:'md', body,
         foot:`<button class="btn ghost" onclick="closeModal()">Tutup</button><button class="btn primary" id="confBtn">✓ Saya Sudah Bayar / Transfer</button>`});
-      $('#confBtn').onclick = ()=>{
-        const trx = DB.get('transactions',[]);
-        items.forEach(c=>{
-          trx.unshift({id:'TRX'+Date.now()+Math.floor(Math.random()*1000),userId:state.user.id,userName:state.user.name,courseId:c.id,courseTitle:c.title,amount:c.price,gateway:gw,status:'pending',createdAt:Date.now()});
-        });
-        DB.set('transactions',trx); apiSync('syncPush',{transactions:trx});
+      $('#confBtn').onclick = async ()=>{
+        // Persist transaksi ke backend (sumber kebenaran)
+        let r = null;
+        try {
+          r = await apiFetch('checkout', {
+            userId: state.user.id, courseIds: items.map(c=>c.id), gateway: gw,
+            couponCode: (typeof couponCode!=='undefined'?couponCode:'') || ''
+          });
+        } catch(e){ toast('Gagal menyimpan transaksi: '+(e.message||e),'danger'); return; }
+        if (!r || !r.ok){ toast('Gagal: '+(r&&r.msg||'unknown'),'danger'); return; }
+        await pullFromBackend(true);
         state.cart={}; DB.set('cart',{});
         closeModal();
         toast('Konfirmasi pembayaran dikirim. Menunggu verifikasi admin.','success');
@@ -3954,27 +3992,24 @@ function checkout(items, total){
 
     // Flow AUTO gateway
     modal({title:'Memproses Pembayaran...',body:`<div class="center" style="padding:30px"><div style="font-size:50px;animation:spin 1s infinite linear">⏳</div><b>Menghubungkan ke ${esc(method.name)}</b><style>@keyframes spin{to{transform:rotate(360deg)}}</style></div>`,foot:''});
-    let serverTotal = total;
+    let serverTotal = total, trxId = null;
     if (API_ENABLED()){
       const r = await apiFetch('checkout',{
         userId: state.user.id, courseIds: items.map(c=>c.id), gateway: gw,
         couponCode: (typeof couponCode!=='undefined'?couponCode:'') || ''
       });
-      if (r && r.ok) serverTotal = r.total;
+      if (r && r.ok){ serverTotal = r.total; trxId = r.trxId; }
+      else { closeModal(); toast('Checkout gagal: '+((r&&r.msg)||'unknown'),'danger'); return; }
     }
+    // Auto-confirm utk gateway (asumsi callback sukses dari payment provider)
+    try { if (trxId) await apiFetch('confirmPayment', { id: trxId }); } catch(_){}
+    await pullFromBackend(true);
     setTimeout(()=>{
       closeModal();
-      const us=DB.get('users',[]); const ix=us.findIndex(x=>x.id===state.user.id);
-      const trx = DB.get('transactions',[]);
-      items.forEach(c=>{
-        if(!us[ix].enrolled.some(e=>e.courseId===c.id)) us[ix].enrolled.push({courseId:c.id,progress:0,completedModules:[]});
-        trx.unshift({id:'TRX'+Date.now()+Math.floor(Math.random()*1000),userId:us[ix].id,userName:us[ix].name,courseId:c.id,courseTitle:c.title,amount:c.price,gateway:gw,status:'success',createdAt:Date.now()});
-      });
-      DB.set('users',us); DB.set('transactions',trx); state.user=us[ix];
       state.cart={}; DB.set('cart',{});
       toast(`Pembayaran berhasil! Total ${fmtRp(serverTotal)} 🎉`,'success');
       state.route='mycourses'; render();
-    },1500);
+    },800);
   };
 }
 
@@ -4094,7 +4129,9 @@ function _instructorStudents(){
 PAGES.iDashboard = el => {
   const cs = _instructorCourses();
   const sts = _instructorStudents();
-  const totalRev = DB.get('transactions',[]).filter(t=>t.status==='success' && cs.some(c=>c.id===t.courseId)).reduce((a,b)=>a+b.amount,0);
+  const cidSet = new Set(cs.map(c=>c.id));
+  const _matches = t => (t.courseId && cidSet.has(t.courseId)) || (Array.isArray(t.courseIds) && t.courseIds.some(id=>cidSet.has(id)));
+  const totalRev = DB.get('transactions',[]).filter(t=>t.status==='success' && _matches(t)).reduce((a,b)=>a+(b.amount!=null?b.amount:(b.total!=null?b.total:0)),0);
   const avgRating = cs.length? (cs.reduce((a,b)=>a+parseFloat(b.rating||0),0)/cs.length).toFixed(1):'0.0';
   el.innerHTML = `
     <div class="page-head"><div><h2>Halo, ${esc(state.user.name)} 👋</h2><p>${esc(state.user.expertise||'Instruktur')}</p></div></div>
