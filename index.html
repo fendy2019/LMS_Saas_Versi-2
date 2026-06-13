@@ -563,7 +563,9 @@ async function pullFromBackend(silent){
       calendar:'calendar', notifications:'notifications', affiliates:'affiliates',
       memberships:'memberships', broadcasts:'broadcasts', materials:'materials',
       certificates:'certificates', settings:'settings', paymentSettings:'paymentSettings',
-      certTemplate:'certTemplate'
+      certTemplate:'certTemplate',
+      modules:'modules', quizzes:'quizzes', assignments:'assignments',
+      submissions:'submissions', enrollments:'enrollments', paymentTests:'paymentTests'
     };
     Object.entries(map).forEach(([k,sk])=>{
       if (r.data[k] !== undefined && r.data[k] !== null) {
@@ -610,7 +612,13 @@ async function pushToBackend(){
     coupons:DB.get('coupons',[]), reviews:DB.get('reviews',[]), threads:DB.get('threads',[]),
     calendar:DB.get('calendar',[]), notifications:DB.get('notifications',[]),
     affiliates:DB.get('affiliates',[]), memberships:DB.get('memberships',[]),
-    broadcasts:DB.get('broadcasts',[]), materials:DB.get('materials',[])
+    broadcasts:DB.get('broadcasts',[]), materials:DB.get('materials',[]),
+    certificates:DB.get('certificates',[]), modules:DB.get('modules',[]),
+    quizzes:DB.get('quizzes',[]), assignments:DB.get('assignments',[]),
+    submissions:DB.get('submissions',[]), enrollments:DB.get('enrollments',[]),
+    paymentTests:DB.get('paymentTests',[]),
+    settings:DB.get('settings'), paymentSettings:DB.get('paymentSettings'),
+    certTemplate:DB.get('certTemplate')
   };
   return apiFetch('syncPush', payload);
 }
