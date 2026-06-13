@@ -100,6 +100,9 @@ img{max-width:100%;display:block}
 /* ============== CARD ============== */
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow-sm);transition:all .2s}
 .card.hover:hover{transform:translateY(-3px);box-shadow:var(--shadow)}
+.pay-opt{transition:all .18s}
+.pay-opt.selected{background:linear-gradient(135deg,var(--primary-soft),rgba(99,102,241,.18))!important;border:2px solid var(--primary)!important;box-shadow:0 6px 18px -6px var(--primary);transform:translateY(-2px)}
+.pay-opt.selected::after{content:'✓';position:absolute;top:6px;right:8px;background:var(--primary);color:#fff;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700}
 .glass{background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--glass-border)}
 
 /* ============== AUTH ============== */
@@ -320,7 +323,7 @@ const session = {
  *  di localStorage agar tidak bisa dibaca script pihak lain via XSS reflection).
  * ============================================================ */
 // Bisa di-override runtime via window.GAS_URL / window.CLIENT_HMAC (atau window.HMAC_SECRET)
-const GAS_URL     = (typeof window!=='undefined' && window.GAS_URL) || "https://script.google.com/macros/s/AKfycbxiMo_FPh1l2dUT5lKWZXiO6TS0nDL1HTwh5g7nEMM1Sj98wHZHVwNjAuBMJFj-OGEUew/exec";
+const GAS_URL     = (typeof window!=='undefined' && window.GAS_URL) || "https://script.google.com/macros/s/AKfycbxgec3WFogO48qV5LwbvIPszLEgnDUD1VS8y3QKkuUIEvHf1oU22h1UV-Po0x50190ONw/exec";
 const CLIENT_HMAC = (typeof window!=='undefined' && (window.CLIENT_HMAC || window.HMAC_SECRET)) || "8f7c2d91b5e4a8f36c7e2b1d9a4f5c8e7d3b6a9c2f1e8d4b7c5a9e2f6d8b1c4";
 const API_ENABLED = () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
 
@@ -459,21 +462,54 @@ async function deleteFromDrive(fileId){
 }
 
 // 2-way sync: tarik data dari sheet ke localStorage (panggil di startup setelah login)
-async function pullFromBackend(){
+async function pullFromBackend(silent){
   const r = await apiFetch('syncPull', {}, {retries:1});
   if (r && r.ok && r.data){
     const map = {
       users:'users', courses:'courses', categories:'categories', instructors:'instructors',
       transactions:'transactions', coupons:'coupons', reviews:'reviews', threads:'threads',
       calendar:'calendar', notifications:'notifications', affiliates:'affiliates',
-      memberships:'memberships', broadcasts:'broadcasts', materials:'materials'
+      memberships:'memberships', broadcasts:'broadcasts', materials:'materials',
+      certificates:'certificates', settings:'settings', paymentSettings:'paymentSettings',
+      certTemplate:'certTemplate'
     };
     Object.entries(map).forEach(([k,sk])=>{
-      if (Array.isArray(r.data[k]) && r.data[k].length) DB.set(sk, r.data[k]);
+      if (r.data[k] !== undefined && r.data[k] !== null) {
+        if (Array.isArray(r.data[k])) { if (r.data[k].length) DB.set(sk, r.data[k]); }
+        else DB.set(sk, r.data[k]);
+      }
     });
-    toast('Data tersinkron dari server','success');
+    // SCAN Drive: file yang diupload manual ke Drive ID akan otomatis muncul sbg materi
+    try {
+      const ds = await apiFetch('listDriveFiles', {}, {retries:1});
+      if (ds && ds.ok && Array.isArray(ds.data)){
+        const mats = DB.get('materials',[]);
+        let added = 0;
+        ds.data.forEach(f=>{
+          if (!mats.some(m=>m.fileId===f.fileId)){
+            mats.unshift({
+              id:'mat_drv_'+f.fileId, title:f.name, type:f.type,
+              fileId:f.fileId, url:f.url, viewUrl:f.viewUrl,
+              mime:f.mime, size:f.size, createdAt:f.createdAt||Date.now(),
+              source:'drive-scan'
+            });
+            added++;
+          }
+        });
+        if (added){ DB.set('materials', mats); }
+      }
+    } catch(_){}
+    if (!silent) toast('Data tersinkron dari server','success');
   }
 }
+// Auto-poll setiap 30 detik bila user sudah login & backend aktif
+let _syncTimer = null;
+function startAutoSync(){
+  if (_syncTimer) clearInterval(_syncTimer);
+  if (!API_ENABLED()) return;
+  _syncTimer = setInterval(()=>{ if(state && state.user) pullFromBackend(true).then(()=>{ try{ render(); }catch(_){} }); }, 30000);
+}
+window.startAutoSync = startAutoSync;
 // push seluruh state lokal ke backend (sekali jalan saat first run)
 async function pushToBackend(){
   const payload = {
@@ -642,14 +678,9 @@ function seed(){
       wishlist:[],
     });
   }
-  // Hanya 3 akun DEMO yg simpan password lokal — bisa disembunyikan via Settings > Keamanan > showDemo
-  const users = [
-    {id:'admin1',name:'Administrator',email:'admin@lms.com',password:'Admin123!',role:'admin',joinedAt:Date.now()-86400000*365,status:'active',enrolled:[],wishlist:[],_demo:true},
-    {id:'student0',name:'Peserta Demo',email:'peserta@lms.com',password:'Peserta123!',role:'student',joinedAt:Date.now()-86400000*30,status:'active',
-      enrolled:[{courseId:'k1',progress:65,completedModules:[]},{courseId:'k5',progress:100,completedModules:[]},{courseId:'k7',progress:25,completedModules:[]}],
-      wishlist:['k3','k10'],_demo:true},
-    ...students,
-  ];
+  // SEMUA USER & PASSWORD DIPINDAH KE Code.gs (backend Google Apps Script).
+  // Frontend hanya menyimpan profil non-sensitif setelah login berhasil ke backend.
+  const users = [ ...students ];
 
   // Transaksi
   const transactions=[];
@@ -754,30 +785,11 @@ function checkLogin(){
 }
 
 function login(email, password, remember){
-  // 1) JIKA backend aktif → server adalah sumber kebenaran (password tidak dicek lokal)
-  if (API_ENABLED()){
-    // async path: caller akan menerima Promise via window.loginAsync; fungsi sync ini
-    // hanya dipakai bila backend offline.
-    return loginAsync(email, password, remember);
+  // Otentikasi 100% di backend (Code.gs). Tidak ada fallback password lokal.
+  if (!API_ENABLED()){
+    return Promise.resolve({ok:false, msg:'Backend belum dikonfigurasi (GAS_URL). Hubungi admin.'});
   }
-  // 2) Offline / demo mode → cek lokal terbatas (hanya akun bertanda _demo)
-  const users = DB.get('users',[]);
-  let u = users.find(x=>x._demo && x.email.toLowerCase()===email.toLowerCase() && x.password===password);
-  if(!u){
-    const ins = DB.get('instructors',[]).find(x=>x.email.toLowerCase()===email.toLowerCase());
-    if(ins){
-      const pw = ins.password || 'Instruktur123!';
-      if(password === pw){
-        u = { id:ins.id, name:ins.name, email:ins.email, role:'instructor', status:'active',
-              expertise:ins.expertise||'', bio:ins.bio||'', permissions:ins.permissions||{}, joinedAt:ins.joinedAt||Date.now(), _demo:true };
-      }
-    }
-  }
-  if(!u) return {ok:false,msg:'Backend offline. Hanya akun demo yang bisa login.'};
-  if(u.status==='inactive') return {ok:false,msg:'Akun dinonaktifkan'};
-  session.set({userId:u.id, loginAt:Date.now(), remember:!!remember});
-  state.user = u;
-  return {ok:true};
+  return loginAsync(email, password, remember);
 }
 async function loginAsync(email, password, remember){
   const r = await apiFetch('login', {email, password});
@@ -873,12 +885,7 @@ function loginForm(){
       <button class="btn primary full" type="submit">Masuk</button>
       <div class="divider">atau</div>
       <button class="btn ghost full" type="button" data-go="register">Buat akun baru</button>
-      ${(DB.get('settings').security?.showDemo!==false) ? `<div class="demo-creds">
-        <b>🔐 Akun Demo:</b><br>
-        Admin: <code>admin@lms.com</code> / <code>Admin123!</code><br>
-        Peserta: <code>peserta@lms.com</code> / <code>Peserta123!</code><br>
-        Instruktur: <code>instruktur@lms.com</code> / <code>Instruktur123!</code>
-      </div>` : ''}
+      ${''/* Akun demo dihapus dari frontend. User & password dikelola di Code.gs (backend) */}
     </form>
   `;
 }
@@ -941,6 +948,8 @@ function bindAuth(mode){
         const r = (res && typeof res.then === 'function') ? await res : res;
         if(!r.ok){ toast(r.msg,'danger'); return; }
         toast('Login berhasil','success');
+        try { await pullFromBackend(true); } catch(_){}
+        startAutoSync();
         render();
       } finally { if(btn){btn.disabled=false; btn.textContent='Masuk';} }
     };
@@ -3869,7 +3878,7 @@ function checkout(items, total){
       <div class="field"><label>Nomor HP</label><input class="input" name="phone" required pattern="[0-9+\\-\\s]{8,}"/></div>
       <div class="field"><label>Metode Pembayaran</label>
         <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px">
-          ${methods.map((g,i)=>`<label class="card hover" style="text-align:center;cursor:pointer;padding:14px;position:relative">
+          ${methods.map((g,i)=>`<label class="card pay-opt ${i===0?'selected':''}" data-pay="${esc(g.id)}" style="text-align:center;cursor:pointer;padding:14px;position:relative">
             <input type="radio" name="gw" value="${g.id}" ${i===0?'checked':''} style="display:none"/>
             <div style="font-size:30px">${g.icon}</div>
             <b style="font-size:12px;display:block;margin-top:4px">${esc(g.name)}</b>
@@ -3882,6 +3891,16 @@ function checkout(items, total){
     </form>`,
     foot:`<button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn primary" id="payBtn">Bayar Sekarang</button>`
   });
+
+  // Highlight metode pembayaran yang dipilih dengan background berbeda
+  $$('.pay-opt').forEach(el=>{
+    el.onclick = ()=>{
+      $$('.pay-opt').forEach(x=>x.classList.remove('selected'));
+      el.classList.add('selected');
+      const r = el.querySelector('input[type=radio]'); if(r){ r.checked = true; }
+    };
+  });
+
 
   $('#payBtn').onclick=async ()=>{
     const f=$('#cof');
