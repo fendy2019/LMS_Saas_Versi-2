@@ -312,17 +312,40 @@ const SYNC_KEYS = new Set([
 ]);
 const _pushQueue = {};
 let _pushTimer = null;
+let _pushFailRetry = 0;
+async function _flushPush(){
+  _pushTimer = null;
+  const payload = Object.assign({}, _pushQueue);
+  for (const k in _pushQueue) delete _pushQueue[k];
+  if (!Object.keys(payload).length) return;
+  try {
+    const r = await apiFetch('syncPush', payload, {retries:3});
+    if (!r || !r.ok){
+      Object.keys(payload).forEach(k=>{ if (!(k in _pushQueue)) _pushQueue[k] = payload[k]; });
+      _pushFailRetry = Math.min(_pushFailRetry + 1, 6);
+      const backoff = Math.min(30000, 1000 * Math.pow(2, _pushFailRetry));
+      if (typeof toast === 'function') toast('Gagal sinkron ke server, mencoba lagi…','warn');
+      _pushTimer = setTimeout(_flushPush, backoff);
+    } else {
+      _pushFailRetry = 0;
+    }
+  } catch(_){
+    Object.keys(payload).forEach(k=>{ if (!(k in _pushQueue)) _pushQueue[k] = payload[k]; });
+    _pushTimer = setTimeout(_flushPush, 3000);
+  }
+}
 function _schedulePush(key, val){
   if (!SYNC_KEYS.has(key)) return;
   if (typeof API_ENABLED === 'function' && !API_ENABLED()) return;
   _pushQueue[key] = val;
   if (_pushTimer) clearTimeout(_pushTimer);
-  _pushTimer = setTimeout(()=>{
-    const payload = Object.assign({}, _pushQueue);
-    for (const k in _pushQueue) delete _pushQueue[k];
-    _pushTimer = null;
-    try { apiSync('syncPush', payload); } catch(_){}
-  }, 400);
+  _pushTimer = setTimeout(_flushPush, 400);
+}
+// Flush sisa queue saat tab ditutup (best effort)
+if (typeof window !== 'undefined'){
+  window.addEventListener('beforeunload', ()=>{
+    if (Object.keys(_pushQueue).length){ try { _flushPush(); } catch(_){} }
+  });
 }
 const DB = {
   get(key, def){ return (key in _MEM) ? _MEM[key] : def; },
@@ -349,7 +372,7 @@ const session = {
  *  di localStorage agar tidak bisa dibaca script pihak lain via XSS reflection).
  * ============================================================ */
 // Bisa di-override runtime via window.GAS_URL / window.CLIENT_HMAC (atau window.HMAC_SECRET)
-const GAS_URL     = (typeof window!=='undefined' && window.GAS_URL) || "https://script.google.com/macros/s/AKfycbxMfeP5EXplVXCeE60PNW3rJ-OMW2pvbfrRKlGSn_KpgcwFmDvSC1Uhr26fk0nyYt8Y/exec";
+const GAS_URL     = (typeof window!=='undefined' && window.GAS_URL) || "https://script.google.com/macros/s/AKfycbwyZsvGF-MDFWMlUNb97F5RMw2BxE_WHnjSzNuRWPflgmSL8FEioPz-UT-xp4cIvSTi/exec";
 const CLIENT_HMAC = (typeof window!=='undefined' && (window.CLIENT_HMAC || window.HMAC_SECRET)) || "V9kX4mP7tR2wQ8zN5cL1hF6aD3sJ9eB7yU2gK8nM4vC1xT5qW9rL6pZ3dH7fS2aY8nE4jR1uI6oP9bV5cX2tM7wQ3kL8yF1";
 const API_ENABLED = () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
 
@@ -636,9 +659,11 @@ async function pullFromBackend(silent){
       modules:'modules', quizzes:'quizzes', assignments:'assignments',
       submissions:'submissions', enrollments:'enrollments', paymentTests:'paymentTests'
     };
+    // Snapshot edit lokal yg masih di queue → jangan ditimpa hasil pull lama
+    const pendingKeys = Object.keys(_pushQueue||{});
     Object.entries(map).forEach(([k,sk])=>{
+      if (pendingKeys.indexOf(sk) >= 0) return; // ada edit pending → skip overwrite key ini
       if (r.data[k] !== undefined && r.data[k] !== null) {
-        // Backend = single source of truth → set apa adanya (termasuk array kosong)
         _MEM[sk] = r.data[k];
       }
     });
@@ -667,12 +692,17 @@ async function pullFromBackend(silent){
     if (!silent) toast('Data tersinkron dari server','success');
   }
 }
-// Auto-poll setiap 30 detik bila user sudah login & backend aktif
+// Auto-poll setiap 30 detik bila user sudah login & backend aktif.
+// Skip pull bila masih ada push pending (hindari overwrite edit lokal yg belum terkirim).
 let _syncTimer = null;
 function startAutoSync(){
   if (_syncTimer) clearInterval(_syncTimer);
   if (!API_ENABLED()) return;
-  _syncTimer = setInterval(()=>{ if(state && state.user) pullFromBackend(true).then(()=>{ try{ render(); }catch(_){} }); }, 30000);
+  _syncTimer = setInterval(()=>{
+    if (!state || !state.user) return;
+    if (_pushTimer) return; // ada edit lokal yg belum ke-push, skip cycle ini
+    pullFromBackend(true).then(()=>{ try{ render(); }catch(_){} });
+  }, 30000);
 }
 window.startAutoSync = startAutoSync;
 // push seluruh state lokal ke backend (sekali jalan saat first run)
