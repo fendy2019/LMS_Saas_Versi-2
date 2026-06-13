@@ -321,7 +321,7 @@ const session = {
  *  di localStorage agar tidak bisa dibaca script pihak lain via XSS reflection).
  * ============================================================ */
 // Bisa di-override runtime via window.GAS_URL / window.CLIENT_HMAC (atau window.HMAC_SECRET)
-const GAS_URL     = (typeof window!=='undefined' && window.GAS_URL) || "https://script.google.com/macros/s/AKfycbz0NHdtX5OIW5utNnyfXT6v0Jf_Dq1E1MOzoAh57-ID9QobQ-PoUve0B2_wqcPtN1kfgw/exec";
+const GAS_URL     = (typeof window!=='undefined' && window.GAS_URL) || "https://script.google.com/macros/s/AKfycbxrVbpFLqN99YflooU0i_KBsHb1AZ6kuOGryClHFJaXN5E3FerLRbq5EsMETZFxE9sdwg/exec";
 const CLIENT_HMAC = (typeof window!=='undefined' && (window.CLIENT_HMAC || window.HMAC_SECRET)) || "8f7c2d91b5e4a8f36c7e2b1d9a4f5c8e7d3b6a9c2f1e8d4b7c5a9e2f6d8b1c4";
 const API_ENABLED = () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
 
@@ -672,31 +672,21 @@ window.filterEmojiPicker = (fid,q)=>{
   });
 };
 
-/* ---------------- INIT DATA (tanpa dummy) ---------------- */
+/* ---------------- INIT DATA (tanpa dummy — semua dari backend) ---------------- */
 function seed(){
   if(DB.get('seeded')) return;
-  // Hanya struktur default minimum — TIDAK ADA dummy course/user/transaksi/review.
-  // Semua data akan terisi dari backend (syncPull) atau input manual oleh admin/instruktur.
+  // TIDAK ADA dummy course/user/transaksi/review/branding.
+  // Semua data (termasuk settings/branding) diisi dari backend via syncPull.
+  // Struktur kosong di sini hanya placeholder agar UI tidak crash sebelum sync pertama.
   const data = {
     seeded:true,
-    categories:[],
-    instructors:[],
-    courses:[],
-    users:[],
-    transactions:[],
-    reviews:[],
-    coupons:[],
-    threads:[],
-    calendar:[],
-    notifications:[],
-    materials:[],
-    certificates:[],
-    affiliates:[],
-    broadcasts:[],
-    memberships:[],
+    categories:[], instructors:[], courses:[], users:[],
+    transactions:[], reviews:[], coupons:[], threads:[],
+    calendar:[], notifications:[], materials:[], certificates:[],
+    affiliates:[], broadcasts:[], memberships:[],
     settings:{
-      general:{name:'EduFlow LMS', tagline:'Belajar Tanpa Batas', logo:'🎓'},
-      seo:{title:'EduFlow LMS - Platform Kursus Online', desc:'Belajar skill digital dari para ahli.'},
+      general:{name:'', tagline:'', logo:'🎓'},
+      seo:{title:'', desc:''},
       payment:{midtransKey:'',xenditKey:'',stripeKey:'',paypalKey:''},
       smtp:{host:'',port:587,user:''},
       security:{sessionTimeout:60,minPwLen:8},
@@ -3287,11 +3277,16 @@ PAGES.settings = el => {
       })[tab]}</div>
     `;
     el.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{tab=b.dataset.t;draw();});
-    el.querySelector('#gf').onsubmit=e=>{
+    el.querySelector('#gf').onsubmit=async e=>{
       e.preventDefault(); const f=e.target;
       const ns = DB.get('settings');
       Object.keys(ns[tab]).forEach(k=>{ if(f[k]) ns[tab][k] = isNaN(+f[k].value)||f[k].type==='text'||f[k].type==='email'?f[k].value:+f[k].value; });
-      DB.set('settings',ns); toast('Pengaturan disimpan','success');
+      DB.set('settings',ns);
+      try {
+        const r = await apiFetch('syncPush', { settings: ns }, { retries:1 });
+        if (r && r.ok) toast('Pengaturan disimpan ke backend','success');
+        else toast('Tersimpan lokal — backend: '+((r&&r.msg)||'gagal'),'warning');
+      } catch(err){ toast('Tersimpan lokal — '+err.message,'warning'); }
     };
   };
   draw();
