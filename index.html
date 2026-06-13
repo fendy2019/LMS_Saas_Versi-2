@@ -121,8 +121,6 @@ img{max-width:100%;display:block}
 .auth-card{width:100%;max-width:420px}
 .auth-card h2{font-size:26px;font-weight:800;margin-bottom:6px}
 .auth-card .sub{color:var(--text-soft);margin-bottom:24px}
-.demo-creds{background:var(--primary-soft);border:1px dashed var(--primary);border-radius:var(--radius-sm);padding:12px;margin-top:16px;font-size:12.5px}
-.demo-creds code{background:rgba(0,0,0,.06);padding:2px 6px;border-radius:4px;font-size:12px}
 .divider{display:flex;align-items:center;gap:10px;margin:18px 0;color:var(--muted);font-size:12px}
 .divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--border)}
 @media (max-width:900px){.auth-wrap{grid-template-columns:1fr}.auth-hero{display:none}}
@@ -323,7 +321,7 @@ const session = {
  *  di localStorage agar tidak bisa dibaca script pihak lain via XSS reflection).
  * ============================================================ */
 // Bisa di-override runtime via window.GAS_URL / window.CLIENT_HMAC (atau window.HMAC_SECRET)
-const GAS_URL     = (typeof window!=='undefined' && window.GAS_URL) || "https://script.google.com/macros/s/AKfycbwt2BWJIzS74zxcHFCJBnnT6gJ5zB-BcHUQHWb2A0-J8M1NpVd1uQS9fiZMDlUciJ-4nA/exec";
+const GAS_URL     = (typeof window!=='undefined' && window.GAS_URL) || "https://script.google.com/macros/s/AKfycbz0NHdtX5OIW5utNnyfXT6v0Jf_Dq1E1MOzoAh57-ID9QobQ-PoUve0B2_wqcPtN1kfgw/exec";
 const CLIENT_HMAC = (typeof window!=='undefined' && (window.CLIENT_HMAC || window.HMAC_SECRET)) || "8f7c2d91b5e4a8f36c7e2b1d9a4f5c8e7d3b6a9c2f1e8d4b7c5a9e2f6d8b1c4";
 const API_ENABLED = () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
 
@@ -674,149 +672,42 @@ window.filterEmojiPicker = (fid,q)=>{
   });
 };
 
-/* ---------------- SEED DATA ---------------- */
+/* ---------------- INIT DATA (tanpa dummy) ---------------- */
 function seed(){
   if(DB.get('seeded')) return;
-  const categories = [
-    {id:'c1',name:'Digital Marketing',icon:'📈'},
-    {id:'c2',name:'Design',icon:'🎨'},
-    {id:'c3',name:'Programming',icon:'💻'},
-    {id:'c4',name:'AI & Data',icon:'🤖'},
-    {id:'c5',name:'Bisnis',icon:'💼'},
-  ];
-  const instructors = [
-    {id:'i1',name:'Andi Pratama',email:'andi@lms.com',expertise:'Digital Marketing',bio:'Praktisi marketing 10 tahun'},
-    {id:'i2',name:'Sari Wijaya',email:'sari@lms.com',expertise:'UI/UX Design',bio:'Senior Designer di Tokopedia'},
-    {id:'i3',name:'Budi Santoso',email:'budi@lms.com',expertise:'Web Development',bio:'Full-stack engineer'},
-    {id:'i4',name:'Maya Putri',email:'maya@lms.com',expertise:'AI Engineer',bio:'ML Researcher'},
-    {id:'i5',name:'Reza Hakim',email:'reza@lms.com',expertise:'Business Strategy',bio:'CEO startup unicorn'},
-  ];
-  const courseSpec = [
-    ['Digital Marketing Fundamentals','c1','i1',499000,'📈'],
-    ['SEO Mastery 2026','c1','i1',599000,'🔍'],
-    ['Google Ads Pro','c1','i1',799000,'📊'],
-    ['Meta Ads & Funnel','c1','i1',699000,'📱'],
-    ['UI/UX Design Bootcamp','c2','i2',899000,'🎨'],
-    ['Figma untuk Pemula','c2','i2',399000,'✏️'],
-    ['Web Development Lengkap','c3','i3',1299000,'💻'],
-    ['JavaScript Modern ES6+','c3','i3',699000,'⚡'],
-    ['Laravel 11 dari Nol','c3','i3',999000,'🛠️'],
-    ['AI Automation dengan n8n','c4','i4',1499000,'🤖'],
-  ];
-  const courses = courseSpec.map((s,i)=>({
-    id:'k'+(i+1), title:s[0], categoryId:s[1], instructorId:s[2], price:s[3], emoji:s[4],
-    description:'Pelajari '+s[0]+' dari nol hingga mahir dengan studi kasus nyata, project portfolio, dan sertifikat.',
-    status: i<8?'published':'draft',
-    level:['Pemula','Menengah','Mahir'][i%3],
-    duration: 8+i*2, // hours
-    enrolled: Math.floor(40+Math.random()*200),
-    rating: (4.2+Math.random()*0.7).toFixed(1),
-    createdAt: Date.now()-i*86400000*7,
-    modules:[
-      {id:uid('m'),title:'Pengenalan & Setup',type:'video',duration:'12:30',content:'Selamat datang di kursus '+s[0]+'!'},
-      {id:uid('m'),title:'Konsep Dasar',type:'video',duration:'18:45',content:'Pelajari fondasi penting.'},
-      {id:uid('m'),title:'Modul PDF: Cheatsheet',type:'pdf',content:'PDF Materi - '+s[0]},
-      {id:uid('m'),title:'Praktik Studi Kasus',type:'video',duration:'24:10',content:'Implementasi pada kasus nyata.'},
-      {id:uid('m'),title:'Quiz: Uji Pemahaman',type:'quiz',questions:[
-        {q:'Apa fungsi utama dari '+s[0]+'?',opts:['Hiburan','Membantu pekerjaan','Tidak ada','Lainnya'],a:1},
-        {q:'Tahun konten kursus ini relevan?',opts:['2010','2015','2026','2000'],a:2},
-        {q:'Berapa lama sebaiknya berlatih per hari?',opts:['Tidak perlu','15-30 menit','5 jam','24 jam'],a:1},
-      ]},
-      {id:uid('m'),title:'Assignment Akhir',type:'assignment',content:'Buat project portfolio berdasarkan materi.'},
-    ]
-  }));
-
-  // 50 peserta
-  const names=['Ahmad','Budi','Citra','Dewi','Eko','Fitri','Galih','Hani','Indra','Joko','Kartika','Lukman','Mira','Nadia','Oki','Putri','Qory','Rina','Sigit','Tomi','Umar','Vino','Wati','Xena','Yusuf','Zaki'];
-  const surn=['Saputra','Pratama','Wijaya','Santoso','Permata','Lestari','Hidayat','Maulana','Anggraini','Susanto'];
-  const students=[];
-  for(let i=0;i<50;i++){
-    const nm = names[i%names.length]+' '+surn[i%surn.length];
-    students.push({
-      id:'u'+(i+1),
-      name:nm,
-      email:`peserta${i+1}@lms.com`,
-      // PASSWORD TIDAK DISIMPAN DI FRONTEND — login via backend
-      role:'student',
-      joinedAt: Date.now()-Math.floor(Math.random()*180)*86400000,
-      status: i%9===0?'inactive':'active',
-      enrolled: courses.slice(0,Math.floor(Math.random()*4)+1).map(c=>({courseId:c.id,progress:Math.floor(Math.random()*100),completedModules:[]})),
-      wishlist:[],
-    });
-  }
-  // SEMUA USER & PASSWORD DIPINDAH KE Code.gs (backend Google Apps Script).
-  // Frontend hanya menyimpan profil non-sensitif setelah login berhasil ke backend.
-  const users = [ ...students ];
-
-  // Transaksi
-  const transactions=[];
-  for(let i=0;i<35;i++){
-    const u = users[2+Math.floor(Math.random()*50)];
-    const c = courses[Math.floor(Math.random()*courses.length)];
-    transactions.push({
-      id:'TRX'+(100000+i),
-      userId:u.id, userName:u.name,
-      courseId:c.id, courseTitle:c.title,
-      amount:c.price,
-      gateway:['midtrans','xendit','stripe','paypal'][i%4],
-      status:['success','success','success','pending','failed'][i%5],
-      createdAt: Date.now()-Math.floor(Math.random()*60)*86400000,
-    });
-  }
-
-  const reviews=[
-    {id:uid('rv'),courseId:'k1',userId:'student0',userName:'Peserta Demo',rating:5,text:'Materi sangat lengkap, instruktur ramah!',createdAt:Date.now()-86400000*3,approved:true},
-    {id:uid('rv'),courseId:'k5',userId:'u3',userName:'Citra Wijaya',rating:4,text:'Cocok untuk pemula, banyak praktik.',createdAt:Date.now()-86400000*10,approved:true},
-    {id:uid('rv'),courseId:'k1',userId:'u7',userName:'Galih Santoso',rating:5,text:'Worth it banget!',createdAt:Date.now()-86400000*7,approved:false},
-  ];
-
-  const coupons=[
-    {id:uid('cp'),code:'WELCOME10',type:'percent',value:10,expiry:Date.now()+86400000*60,active:true},
-    {id:uid('cp'),code:'HEMAT50K',type:'nominal',value:50000,expiry:Date.now()+86400000*30,active:true},
-    {id:uid('cp'),code:'NEWUSER',type:'percent',value:25,expiry:Date.now()+86400000*14,active:true},
-  ];
-
-  const threads=[
-    {id:uid('th'),courseId:'k1',userId:'student0',userName:'Peserta Demo',title:'Cara optimasi SEO on-page?',body:'Mohon penjelasan lebih detail tentang strategi keyword.',replies:[
-      {userId:'i1',userName:'Andi Pratama (Instruktur)',body:'Mulai dari riset kata kunci dengan tools seperti Ahrefs.',likes:3,createdAt:Date.now()-86400000},
-    ],likes:5,createdAt:Date.now()-86400000*2},
-  ];
-
-  const settings={
-    general:{name:'EduFlow LMS', tagline:'Belajar Tanpa Batas', logo:'🎓'},
-    seo:{title:'EduFlow LMS - Platform Kursus Online',desc:'Belajar skill digital dari para ahli.'},
-    // API keys TIDAK lagi disimpan di frontend — ada di Script Properties GAS.
-    payment:{midtransKey:'***di-Script-Properties***',xenditKey:'***',stripeKey:'***',paypalKey:'***'},
-    smtp:{host:'smtp.gmail.com',port:587,user:'noreply@lms.com'},
-    security:{sessionTimeout:60,minPwLen:8,showDemo:true},
-  };
-
-  const calendar=[
-    {id:uid('ev'),title:'Live Session: SEO Mastery',date:Date.now()+86400000*2,courseId:'k2'},
-    {id:uid('ev'),title:'Deadline Assignment Digital Marketing',date:Date.now()+86400000*5,courseId:'k1'},
-    {id:uid('ev'),title:'Webinar AI Trends 2026',date:Date.now()+86400000*10,courseId:'k10'},
-  ];
-
-  const notifications=[
-    {id:uid('n'),userId:'student0',title:'Selamat datang!',body:'Mulai perjalanan belajar Anda',read:false,createdAt:Date.now()-86400000},
-    {id:uid('n'),userId:'student0',title:'Kursus baru tersedia',body:'AI Automation kini tersedia',read:false,createdAt:Date.now()-3600000},
-  ];
-
+  // Hanya struktur default minimum — TIDAK ADA dummy course/user/transaksi/review.
+  // Semua data akan terisi dari backend (syncPull) atau input manual oleh admin/instruktur.
   const data = {
-    seeded:true, categories, instructors, courses, users, transactions, reviews, coupons, threads, settings, calendar, notifications,
-    affiliates:[{id:'student0',code:'PESERTA-REF',clicks:42,signups:5,earnings:250000}],
-    memberships:[
-      {id:'free',name:'Free',price:0,features:['3 kursus gratis','Akses komunitas','Tidak ada sertifikat']},
-      {id:'basic',name:'Basic',price:99000,features:['10 kursus/bulan','Forum support','Sertifikat dasar']},
-      {id:'premium',name:'Premium',price:299000,features:['Semua kursus','Live session','Sertifikat premium','Mentor 1-on-1']},
-      {id:'ent',name:'Enterprise',price:1499000,features:['Tim 10 user','SSO','Custom branding','Dedicated support']},
-    ],
+    seeded:true,
+    categories:[],
+    instructors:[],
+    courses:[],
+    users:[],
+    transactions:[],
+    reviews:[],
+    coupons:[],
+    threads:[],
+    calendar:[],
+    notifications:[],
+    materials:[],
+    certificates:[],
+    affiliates:[],
     broadcasts:[],
-    cart: {},
+    memberships:[],
+    settings:{
+      general:{name:'EduFlow LMS', tagline:'Belajar Tanpa Batas', logo:'🎓'},
+      seo:{title:'EduFlow LMS - Platform Kursus Online', desc:'Belajar skill digital dari para ahli.'},
+      payment:{midtransKey:'',xenditKey:'',stripeKey:'',paypalKey:''},
+      smtp:{host:'',port:587,user:''},
+      security:{sessionTimeout:60,minPwLen:8},
+    },
+    cart:{},
   };
   Object.entries(data).forEach(([k,v])=>DB.set(k,v));
 }
 seed();
+
+
 
 /* ---------------- STATE ---------------- */
 const state = {
@@ -877,7 +768,7 @@ function register(data){
   if(users.some(u=>u.email.toLowerCase()===data.email.toLowerCase())) return {ok:false,msg:'Email sudah terdaftar'};
   const minLen = DB.get('settings').security?.minPwLen||8;
   if(data.password.length < minLen) return {ok:false,msg:`Password minimal ${minLen} karakter`};
-  const nu = {id:uid('u'),name:data.name,email:data.email,password:data.password,role:'student',joinedAt:Date.now(),status:'active',enrolled:[],wishlist:[],_demo:true};
+  const nu = {id:uid('u'),name:data.name,email:data.email,password:data.password,role:'student',joinedAt:Date.now(),status:'active',enrolled:[],wishlist:[]};
   users.push(nu); DB.set('users',users);
   return {ok:true,user:nu};
 }
@@ -1753,7 +1644,7 @@ PAGES.materials = el => {
             ${m.description?`<p class="text-sm" style="margin-top:6px">${esc(m.description.slice(0,90))}${m.description.length>90?'…':''}</p>`:''}
             ${m.fallback?'<div class="badge warn" style="margin-top:6px">tersimpan lokal</div>':''}
             <div class="flex gap-1 mt-2" style="flex-wrap:wrap">
-              <a class="btn sm primary" href="${esc(m.viewUrl||m.url)}" target="_blank" rel="noopener">👁️ Preview</a>
+              <button class="btn sm primary" data-pv="${m.id}">👁️ Preview</button>
               <button class="btn sm ghost" data-ed="${m.id}">Edit</button>
               <button class="btn sm danger" data-rm="${m.id}">Hapus</button>
             </div>
@@ -1764,6 +1655,7 @@ PAGES.materials = el => {
     $$('[data-t]').forEach(b=>b.onclick=()=>{filter=b.dataset.t; draw();});
     $('#upMat').onclick = ()=>materialForm();
     $$('[data-ed]').forEach(b=>b.onclick=()=>materialForm(b.dataset.ed));
+    $$('[data-pv]').forEach(b=>b.onclick=()=>openMaterialPreview(b.dataset.pv));
     $$('[data-rm]').forEach(b=>b.onclick=()=>{
       const id = b.dataset.rm;
       const mat = DB.get('materials',[]).find(x=>x.id===id);
@@ -1779,6 +1671,32 @@ PAGES.materials = el => {
     });
   };
   draw();
+};
+
+window.openMaterialPreview = function(id){
+  const mat = DB.get('materials',[]).find(x=>x.id===id);
+  if(!mat){ toast('Materi tidak ditemukan','danger'); return; }
+  const driveId = mat.fileId || (mat.url && (mat.url.match(/\/d\/([^/]+)/)?.[1] || mat.url.match(/[?&]id=([^&]+)/)?.[1])) || '';
+  const previewSrc = driveId
+    ? `https://drive.google.com/file/d/${driveId}/preview`
+    : (mat.viewUrl || mat.url || '').replace(/\/view(\?.*)?$/, '/preview');
+  const t = (mat.type||'').toLowerCase();
+  let body = '';
+  if (previewSrc){
+    if (t==='audio' && !driveId){
+      body = `<audio src="${esc(previewSrc)}" controls controlsList="nodownload" style="width:100%"></audio>`;
+    } else if (t==='image' && !driveId){
+      body = `<img src="${esc(previewSrc)}" alt="${esc(mat.title)}" style="max-width:100%;border-radius:8px"/>`;
+    } else {
+      body = `<div style="width:100%;height:75vh;background:#000;border-radius:8px;overflow:hidden">
+        <iframe src="${esc(previewSrc)}" style="width:100%;height:100%;border:0" allow="autoplay; encrypted-media; fullscreen" allowfullscreen sandbox="allow-scripts allow-same-origin allow-popups allow-presentation"></iframe>
+      </div>`;
+    }
+  } else {
+    body = `<div class="empty">File tidak memiliki URL yang dapat di-preview.</div>`;
+  }
+  modal({ title:`👁️ ${mat.title}`, size:'xl', body,
+    foot:`<button class="btn ghost" onclick="closeModal()">Tutup</button>` });
 };
 
 function materialForm(id){
@@ -3608,21 +3526,43 @@ window.openModule = (cid,mid)=>{
   const noSel = 'user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-user-drag:none;';
   let body='';
   if(m.type==='video'){
-    body = `<div class="vp" id="vp" style="${noSel}position:relative" oncontextmenu="return false">
-      <div class="play" id="playBtn"><svg width="30" height="30" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg></div>
-      <div style="${wmStyle}">${wmText}</div>
-      <div class="controls">
-        <button id="pp">▶</button>
-        <div class="progress" id="pg"><div class="bar" id="pb"></div></div>
-        <span id="tm">0:00 / ${m.duration||'10:00'}</span>
-        <select id="spd" style="background:rgba(255,255,255,.2);color:#fff;border:0;border-radius:4px;padding:4px 6px">
-          <option value="0.5">0.5x</option><option value="1" selected>1x</option><option value="1.5">1.5x</option><option value="2">2x</option>
-        </select>
-        <button id="fs">⛶</button>
-      </div>
-    </div>
-    <div class="muted text-sm mt-1">🔒 Video hanya untuk ditonton. Download & screen-capture tidak diizinkan.</div>
-    <p class="mt-2" style="${noSel}">${esc(m.content||'')}</p>`;
+    // Tentukan sumber video. Prioritas: fileId Drive -> URL Drive -> URL langsung (mp4/webm/ogg) -> YouTube/Vimeo
+    const driveId = m.fileId || (m.url && (m.url.match(/\/d\/([^/]+)/)?.[1] || m.url.match(/[?&]id=([^&]+)/)?.[1])) || '';
+    const rawUrl = m.url||'';
+    const isYT = /youtube\.com|youtu\.be/i.test(rawUrl);
+    const isVimeo = /vimeo\.com/i.test(rawUrl);
+    const isDirectVideo = /\.(mp4|webm|ogg|m4v|mov)(\?|$)/i.test(rawUrl);
+    let playerHtml = '';
+    if (driveId){
+      const src = `https://drive.google.com/file/d/${driveId}/preview`;
+      playerHtml = `<iframe src="${esc(src)}" style="width:100%;height:100%;border:0" allow="autoplay; encrypted-media; fullscreen" allowfullscreen sandbox="allow-scripts allow-same-origin allow-popups allow-presentation"></iframe>`;
+    } else if (isYT){
+      const yid = rawUrl.match(/(?:v=|youtu\.be\/|embed\/)([A-Za-z0-9_-]{6,})/)?.[1] || '';
+      playerHtml = yid ? `<iframe src="https://www.youtube.com/embed/${yid}?rel=0" style="width:100%;height:100%;border:0" allow="autoplay; encrypted-media; fullscreen" allowfullscreen></iframe>` : '';
+    } else if (isVimeo){
+      const vid = rawUrl.match(/vimeo\.com\/(\d+)/)?.[1] || '';
+      playerHtml = vid ? `<iframe src="https://player.vimeo.com/video/${vid}" style="width:100%;height:100%;border:0" allow="autoplay; fullscreen" allowfullscreen></iframe>` : '';
+    } else if (isDirectVideo){
+      playerHtml = `<video src="${esc(rawUrl)}" controls controlsList="nodownload" oncontextmenu="return false" style="width:100%;height:100%;background:#000" playsinline></video>`;
+    } else if (rawUrl){
+      playerHtml = `<iframe src="${esc(rawUrl)}" style="width:100%;height:100%;border:0" allow="autoplay; fullscreen" allowfullscreen sandbox="allow-scripts allow-same-origin allow-popups allow-presentation"></iframe>`;
+    }
+    body = `<div style="${noSel};position:relative" oncontextmenu="return false">
+      ${playerHtml ? `
+        <div style="position:relative;width:100%;height:70vh;background:#000;border-radius:10px;overflow:hidden">
+          ${playerHtml}
+          <div style="${wmStyle}">${wmText}</div>
+        </div>
+      ` : `
+        <div class="card" style="text-align:center;padding:40px">
+          <div style="font-size:60px">🎬</div>
+          <b>${esc(m.title)}</b>
+          <p class="muted">Video belum tersedia. Hubungi instruktur.</p>
+        </div>
+      `}
+      <div class="muted text-sm mt-1">🔒 Streaming only — download &amp; klik-kanan dinonaktifkan.</div>
+      ${m.content?`<p class="mt-2" style="${noSel}">${esc(m.content)}</p>`:''}
+    </div>`;
   } else if(m.type==='pdf'){
     // Reading-view PDF: render via Google Drive preview iframe when fileId/url is available, otherwise placeholder
     const driveId = m.fileId || (m.url && (m.url.match(/\/d\/([^/]+)/)?.[1] || m.url.match(/[?&]id=([^&]+)/)?.[1])) || '';
@@ -3666,7 +3606,7 @@ window.openModule = (cid,mid)=>{
   // Tear down guard when modal closes
   const mo = new MutationObserver(()=>{ if(!document.querySelector('.modal-backdrop')){ _viewerGuard(false); mo.disconnect(); } });
   mo.observe(document.body,{childList:true,subtree:false});
-  if(m.type==='video') setupVideo();
+  // Video sekarang pakai iframe/HTML5 — tidak perlu setupVideo() simulator
 };
 
 function setupVideo(){
