@@ -323,7 +323,7 @@ const session = {
  *  di localStorage agar tidak bisa dibaca script pihak lain via XSS reflection).
  * ============================================================ */
 // Bisa di-override runtime via window.GAS_URL / window.CLIENT_HMAC (atau window.HMAC_SECRET)
-const GAS_URL     = (typeof window!=='undefined' && window.GAS_URL) || "https://script.google.com/macros/s/AKfycbxgec3WFogO48qV5LwbvIPszLEgnDUD1VS8y3QKkuUIEvHf1oU22h1UV-Po0x50190ONw/exec";
+const GAS_URL     = (typeof window!=='undefined' && window.GAS_URL) || "https://script.google.com/macros/s/AKfycbx4fVAPVKnE-bjNE9q_Im1ipeIsn3VRxKJAk4EAjiv8jyz0fPDG55EbqhohdbqpFO3W3g/exec";
 const CLIENT_HMAC = (typeof window!=='undefined' && (window.CLIENT_HMAC || window.HMAC_SECRET)) || "8f7c2d91b5e4a8f36c7e2b1d9a4f5c8e7d3b6a9c2f1e8d4b7c5a9e2f6d8b1c4";
 const API_ENABLED = () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
 
@@ -412,49 +412,115 @@ function blobToBase64(blob){
     r.readAsDataURL(blob);
   });
 }
-async function uploadToDrive(file, meta={}){
-  // Chunked upload ke Google Drive via GAS — tanpa batas ukuran (semua file wajib ke Drive ID).
-  const type = file.type.startsWith('video')?'video':file.type.startsWith('audio')?'audio':file.type.startsWith('image')?'image':'pdf';
-  if (!API_ENABLED()){
-    return { ok:false, msg:'Backend (GAS_URL) belum dikonfigurasi. File hanya bisa diupload setelah backend aktif.' };
-  }
-  try{
-    const CHUNK = 4 * 1024 * 1024; // 4MB per potongan (aman di bawah batas payload GAS)
-    const total = Math.max(1, Math.ceil(file.size / CHUNK));
-    // File kecil → single shot (kompatibel mundur)
-    if (file.size <= CHUNK){
-      const base64 = await blobToBase64(file);
-      const r = await apiFetch('uploadFile', {
-        filename: file.name, mime: file.type || 'application/octet-stream', base64, type,
-        title: meta.title || file.name, description: meta.description || ''
-      }, { timeout: 180000, retries: 2 });
-      if (r && r.ok && r.data){ r.data.type = r.data.type || type; r.data.mime = r.data.mime || file.type; return r; }
-      return { ok:false, msg: (r && r.msg) || 'Upload ke Drive gagal' };
-    }
-    // File besar → chunked
-    const uploadId = 'up_' + Date.now() + '_' + Math.floor(Math.random()*1e6);
-    for (let i=0; i<total; i++){
-      const start = i*CHUNK;
-      const slice = file.slice(start, Math.min(start+CHUNK, file.size));
-      const base64 = await blobToBase64(slice);
-      const r = await apiFetch('uploadFileChunk', {
-        uploadId, index: i, total,
-        filename: file.name, mime: file.type || 'application/octet-stream', type,
-        title: meta.title || file.name, description: meta.description || '',
-        base64
-      }, { timeout: 180000, retries: 3 });
-      if (!r || !r.ok) return { ok:false, msg: (r && r.msg) || ('Chunk '+(i+1)+'/'+total+' gagal') };
-      if (typeof meta.onProgress === 'function'){
-        try { meta.onProgress(Math.round(((i+1)/total)*100), i+1, total); } catch(_){}
-      }
-      if (r.data && r.data.fileId){
-        r.data.type = r.data.type || type; r.data.mime = r.data.mime || file.type;
-        return r;
-      }
-    }
-    return { ok:false, msg:'Upload selesai tanpa fileId' };
-  }catch(e){ return { ok:false, msg:String(e) }; }
+/* ====== Chunk Upload v2 ======
+   - Pecah file → potongan 4MB (CHUNK_SIZE bisa diubah).
+   - uploadId deterministik (resume otomatis setelah refresh / offline).
+   - getUploadStatus → skip chunk yang sudah ada di server.
+   - Retry+backoff per chunk; mergeChunks di akhir.
+   - localStorage menyimpan progress untuk hint resume.
+*/
+const CHUNK_SIZE = (window.CHUNK_SIZE_MB ? Number(window.CHUNK_SIZE_MB) : 4) * 1024 * 1024;
+const RESUME_KEY = 'chunkUpload.sessions.v2';
+
+function _genUploadId(file){
+  const sig = `${file.name}|${file.size}|${file.lastModified}`;
+  let h = 0; for (let i=0;i<sig.length;i++){ h = (h*31 + sig.charCodeAt(i))|0; }
+  return 'u' + Math.abs(h).toString(36) + '_' + file.size.toString(36);
 }
+function _resumeRead(){ try{ return JSON.parse(localStorage.getItem(RESUME_KEY)||'{}'); }catch{ return {}; } }
+function _resumeSave(id, info){ const m = _resumeRead(); m[id] = Object.assign({}, m[id]||{}, info, {ts:Date.now()}); localStorage.setItem(RESUME_KEY, JSON.stringify(m)); }
+function _resumeDrop(id){ const m = _resumeRead(); delete m[id]; localStorage.setItem(RESUME_KEY, JSON.stringify(m)); }
+
+async function uploadToDrive(file, meta={}){
+  // SEMUA file → Google Drive via chunk upload. Tidak ada fallback localStorage.
+  if (!API_ENABLED()){
+    return { ok:false, msg:'Backend (GAS_URL) belum dikonfigurasi.' };
+  }
+  const mime = file.type || 'application/octet-stream';
+  const type = mime.startsWith('video')?'video':mime.startsWith('audio')?'audio':mime.startsWith('image')?'image':(mime==='application/pdf'?'pdf':'doc');
+  const total = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
+  const uploadId = _genUploadId(file);
+
+  const report = (pct, idx, tot, label) => {
+    if (typeof meta.onProgress === 'function'){ try { meta.onProgress(pct, idx, tot, label||''); } catch(_){} }
+    if (typeof meta.onStatus === 'function'){ try { meta.onStatus(label||''); } catch(_){} }
+  };
+
+  try {
+    report(0, 0, total, `Memulai upload (${total} chunk @ ${(CHUNK_SIZE/1024/1024).toFixed(0)} MB)`);
+
+    // 1) cek progress di server (resume)
+    let done = new Set();
+    try {
+      const st = await apiFetch('getUploadStatus', { uploadId }, { retries:1, timeout:30000 });
+      if (st && st.ok && st.data && Array.isArray(st.data.uploadedChunks)){
+        st.data.uploadedChunks.forEach(i => { if (i < total) done.add(i); });
+      }
+    } catch(_){}
+    if (done.size){
+      report(Math.round(done.size*100/total), done.size, total, `Resume ${done.size}/${total} chunk`);
+    }
+    _resumeSave(uploadId, { name:file.name, size:file.size, total, mime });
+
+    // 2) kirim chunk yg belum ada (sequential agar urutan + memori aman)
+    for (let i = 0; i < total; i++){
+      if (done.has(i)) continue;
+      const start = i * CHUNK_SIZE;
+      const slice = file.slice(start, Math.min(start + CHUNK_SIZE, file.size));
+      const base64 = await blobToBase64(slice);
+
+      let ok = false, lastErr = null;
+      for (let attempt = 1; attempt <= 4 && !ok; attempt++){
+        try {
+          const r = await apiFetch('uploadChunk', {
+            uploadId, fileName: file.name, mime, totalSize: file.size,
+            chunkIndex: i, totalChunks: total, chunkData: base64,
+            title: meta.title || file.name, description: meta.description || ''
+          }, { timeout: 180000, retries: 0 });
+          if (!r || !r.ok) throw new Error((r && r.msg) || 'chunk gagal');
+          ok = true;
+        } catch(e){
+          lastErr = e;
+          report(Math.round(done.size*100/total), done.size, total,
+                 `Chunk ${i+1}/${total} gagal (percobaan ${attempt}): ${e.message||e}`);
+          await new Promise(r => setTimeout(r, 800 * attempt));
+        }
+      }
+      if (!ok){
+        _resumeSave(uploadId, { uploaded: Array.from(done) });
+        return { ok:false, msg:'Chunk '+(i+1)+'/'+total+' gagal terus: '+(lastErr && lastErr.message || lastErr) };
+      }
+      done.add(i);
+      _resumeSave(uploadId, { uploaded: Array.from(done) });
+      report(Math.round(done.size*100/total), done.size, total, `Mengupload chunk ${done.size}/${total}`);
+    }
+
+    // 3) merge di server
+    report(100, total, total, 'Menggabungkan file di server…');
+    const m = await apiFetch('mergeChunks', {
+      uploadId, fileName: file.name, mime, totalChunks: total,
+      title: meta.title || file.name, description: meta.description || ''
+    }, { timeout: 600000, retries: 1 });
+    if (!m || !m.ok) return { ok:false, msg:(m && m.msg) || 'Merge gagal' };
+
+    _resumeDrop(uploadId);
+    m.data.type = m.data.type || type;
+    m.data.mime = m.data.mime || mime;
+    report(100, total, total, 'Upload selesai ✔');
+    return m;
+  } catch(e){
+    return { ok:false, msg: String(e && e.message || e) };
+  }
+}
+
+/** Batalkan upload yang masih berjalan / sisa chunk di server. */
+async function cancelUpload(file){
+  if (!file) return;
+  const uploadId = _genUploadId(file);
+  try { await apiFetch('cleanupChunks', { uploadId }, { retries:1 }); } catch(_){}
+  _resumeDrop(uploadId);
+}
+
 async function deleteFromDrive(fileId){
   if (!fileId) return { ok:true };
   if (!API_ENABLED() || String(fileId).startsWith('local_')) return { ok:true };
