@@ -349,7 +349,7 @@ const session = {
  *  di localStorage agar tidak bisa dibaca script pihak lain via XSS reflection).
  * ============================================================ */
 // Bisa di-override runtime via window.GAS_URL / window.CLIENT_HMAC (atau window.HMAC_SECRET)
-const GAS_URL     = (typeof window!=='undefined' && window.GAS_URL) || "https://script.google.com/macros/s/AKfycbyqGYl05i6dE3HhyWLA30NmzAMcdZqFVDZ6dNxrYvCm-UpsEo21KcW5qhg61BjLWuNc/exec";
+const GAS_URL     = (typeof window!=='undefined' && window.GAS_URL) || "https://script.google.com/macros/s/AKfycbxrdNcENIZLAZrvDt1FpaiTM1zKX6rvDWzAV7xOVpUovKHuaYX-oo2yTBS3ctMjwzUq/exec";
 const CLIENT_HMAC = (typeof window!=='undefined' && (window.CLIENT_HMAC || window.HMAC_SECRET)) || "8f7c2d91b5e4a8f36c7e2b1d9a4f5c8e7d3b6a9c2f1e8d4b7c5a9e2f6d8b1c4";
 const API_ENABLED = () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
 
@@ -378,10 +378,12 @@ async function apiFetch(action, payload = {}, opts = {}){
     try {
       const ctrl = new AbortController();
       const tid = setTimeout(()=>ctrl.abort(), opts.timeout || 30000);
-      const body = { action, data: payload, ts: Date.now(), token: tokenStore.get() };
-      // signed envelope: sig hanya melindungi {action,data,ts}
-      const toSign = JSON.stringify({action: body.action, data: body.data, ts: body.ts});
-      body.sig = await _hmacSign(toSign);
+      const ts = Date.now();
+      // Bangun string kanonik SEKALI, lalu kirim apa adanya di body.payload.
+      // Backend memverifikasi byte yg sama persis -> hilangkan risiko mismatch rebuild.
+      const toSign = JSON.stringify({action, data: payload, ts});
+      const sig = await _hmacSign(toSign);
+      const body = { action, data: payload, ts, token: tokenStore.get(), payload: toSign, sig };
       const res = await fetch(GAS_URL, {
         method:'POST',
         headers:{'Content-Type':'text/plain;charset=utf-8'}, // hindari preflight
