@@ -307,7 +307,8 @@ const _MEM = Object.create(null);
 const SYNC_KEYS = new Set([
   'users','courses','categories','instructors','transactions','coupons',
   'reviews','threads','calendar','notifications','affiliates','memberships',
-  'broadcasts','materials','certificates','settings','paymentSettings','certTemplate'
+  'broadcasts','materials','certificates','settings','paymentSettings','certTemplate',
+  'paymentTests','enrollments','submissions','modules','quizzes','assignments'
 ]);
 const _pushQueue = {};
 let _pushTimer = null;
@@ -348,7 +349,7 @@ const session = {
  *  di localStorage agar tidak bisa dibaca script pihak lain via XSS reflection).
  * ============================================================ */
 // Bisa di-override runtime via window.GAS_URL / window.CLIENT_HMAC (atau window.HMAC_SECRET)
-const GAS_URL     = (typeof window!=='undefined' && window.GAS_URL) || "https://script.google.com/macros/s/AKfycbzHx-hYuDnyH3G3E-sIBWpHONoIXhfsi4a-Qocc1bGZJfwMNlPPq0Cs_qmTqIEJ_i89yA/exec";
+const GAS_URL     = (typeof window!=='undefined' && window.GAS_URL) || "https://script.google.com/macros/s/AKfycbyetl9-nJ51LLYfxRozgYQEJibL6qr-cnurc9CRE7_wd57zP5nPPWMWg08IXNj_i6cqkw/exec";
 const CLIENT_HMAC = (typeof window!=='undefined' && (window.CLIENT_HMAC || window.HMAC_SECRET)) || "8f7c2d91b5e4a8f36c7e2b1d9a4f5c8e7d3b6a9c2f1e8d4b7c5a9e2f6d8b1c4";
 const API_ENABLED = () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
 
@@ -752,6 +753,7 @@ function checkLogin(){
         return false;
       }
       state.user = u;
+      if (u.cart && typeof u.cart === 'object') state.cart = Object.assign({}, u.cart);
       return true;
     }
   }
@@ -775,6 +777,7 @@ async function loginAsync(email, password, remember){
   DB.set('users', us);
   session.set({userId:r.user.id, loginAt:Date.now(), remember:!!remember});
   state.user = safe;
+  if (safe.cart && typeof safe.cart === 'object') state.cart = Object.assign({}, safe.cart);
   return {ok:true};
 }
 function logout(){ session.clear(); tokenStore.clear(); state.user=null; render(); }
@@ -3480,8 +3483,17 @@ function openCourse(cid){
   });
 }
 window.openCourse = openCourse;
+function _persistCart(){
+  try{
+    if (!state.user) return;
+    const us = DB.get('users',[]); const ix = us.findIndex(x=>x.id===state.user.id);
+    if (ix<0) return;
+    us[ix].cart = Object.assign({}, state.cart||{});
+    DB.set('users', us); state.user = us[ix];
+  }catch(e){}
+}
 window.addToCart = (cid)=>{
-  state.cart[cid] = 1; DB.set('cart',state.cart); toast('Ditambahkan ke keranjang','success'); render();
+  state.cart[cid] = 1; DB.set('cart',state.cart); _persistCart(); toast('Ditambahkan ke keranjang','success'); render();
 };
 window.toggleWish = (cid)=>{
   const us=DB.get('users',[]); const ix=us.findIndex(x=>x.id===state.user.id);
@@ -3490,7 +3502,7 @@ window.toggleWish = (cid)=>{
   else us[ix].wishlist.push(cid);
   DB.set('users',us); state.user=us[ix]; toast('Wishlist diperbarui','success'); closeModal();
 };
-window.buyNow=(cid)=>{state.cart={[cid]:1};DB.set('cart',state.cart);state.route='cart';closeModal();render();};
+window.buyNow=(cid)=>{state.cart={[cid]:1};DB.set('cart',state.cart);_persistCart();state.route='cart';closeModal();render();};
 window.reviewForm=(cid)=>{
   closeModal();
   setTimeout(()=>{
@@ -3872,7 +3884,7 @@ PAGES.cart = el => {
         </div>
       </div>`:'<div class="empty"><div style="font-size:60px">🛒</div>Keranjang kosong<br><button class="btn primary mt-2" data-route="catalog">Cari Kursus</button></div>'}
     `;
-    el.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{delete state.cart[b.dataset.rm];DB.set('cart',state.cart);draw();render();});
+    el.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{delete state.cart[b.dataset.rm];DB.set('cart',state.cart); try{_persistCart();}catch(e){} draw();render();});
     el.querySelectorAll('[data-route]').forEach(b=>b.onclick=()=>{state.route=b.dataset.route;render();});
     if(items.length){
       $('#apc').onclick=()=>{
@@ -3982,7 +3994,7 @@ function checkout(items, total){
         } catch(e){ toast('Gagal menyimpan transaksi: '+(e.message||e),'danger'); return; }
         if (!r || !r.ok){ toast('Gagal: '+(r&&r.msg||'unknown'),'danger'); return; }
         await pullFromBackend(true);
-        state.cart={}; DB.set('cart',{});
+        state.cart={}; DB.set('cart',{}); try{_persistCart();}catch(e){}
         closeModal();
         toast('Konfirmasi pembayaran dikirim. Menunggu verifikasi admin.','success');
         state.route='mytrx'; render();
@@ -4006,7 +4018,7 @@ function checkout(items, total){
     await pullFromBackend(true);
     setTimeout(()=>{
       closeModal();
-      state.cart={}; DB.set('cart',{});
+      state.cart={}; DB.set('cart',{}); try{_persistCart();}catch(e){}
       toast(`Pembayaran berhasil! Total ${fmtRp(serverTotal)} 🎉`,'success');
       state.route='mycourses'; render();
     },800);
