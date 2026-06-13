@@ -1432,9 +1432,18 @@ PAGES.categories = el => {
   `;
   el.querySelector('#add').onclick=()=>catForm();
   el.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>catForm(b.dataset.edit));
-  el.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>confirmModal('Hapus kategori?',()=>{
-    const next = DB.get('categories',[]).filter(x=>x.id!==b.dataset.del);
-    DB.set('categories', next); apiSync('syncPush',{categories: next});
+  el.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>confirmModal('Hapus kategori?',async()=>{
+    const id = b.dataset.del;
+    const courses = DB.get('courses',[]);
+    if (courses.some(x=>x.categoryId===id)){
+      toast('Tidak bisa dihapus: masih ada kursus pada kategori ini','danger'); return;
+    }
+    const next = DB.get('categories',[]).filter(x=>x.id!==id);
+    if (API_ENABLED()){
+      const r = await apiFetch('syncPush',{categories: next},{retries:2});
+      if(!r || r.ok===false){ toast((r&&r.msg)||'Gagal menghapus di backend','danger'); return; }
+    }
+    _MEM['categories'] = next;
     toast('Kategori dihapus','success'); renderPage();
   }));
 };
@@ -1447,15 +1456,39 @@ function catForm(id){
   $('#cs').onclick=async()=>{
     const f=$('#catF'); if(!f.name.value.trim()){toast('Nama wajib','danger');return;}
     const btn=$('#cs'); btn.disabled=true; const _old=btn.textContent; btn.textContent='Menyimpan...';
-    const cats = DB.get('categories',[]);
-    if(id){ const i=cats.findIndex(x=>x.id===id); cats[i]={...cats[i],name:f.name.value.trim(),icon:f.icon.value||'📁'}; }
-    else cats.push({id:uid('c'),name:f.name.value.trim(),icon:f.icon.value||'📁'});
-    DB.set('categories',cats);
-    if(API_ENABLED()){
-      const r = await apiFetch('syncPush',{categories:cats},{retries:2});
-      if(!r || r.ok===false){ btn.disabled=false; btn.textContent=_old; toast((r&&r.msg)||'Gagal menyimpan ke backend','danger'); return; }
+    // Bangun snapshot BARU tanpa memutasi state lokal dulu (agar bisa di-rollback kalau backend gagal)
+    const curr = DB.get('categories',[]);
+    const next = curr.map(x=>({...x}));
+    const name = f.name.value.trim();
+    const icon = f.icon.value || '📁';
+    if(id){
+      const i = next.findIndex(x=>x.id===id);
+      if(i<0){ btn.disabled=false; btn.textContent=_old; toast('Kategori tidak ditemukan','danger'); return; }
+      next[i] = {...next[i], name, icon};
+    } else {
+      // cegah duplikat nama (case-insensitive)
+      if (next.some(x => (x.name||'').toLowerCase() === name.toLowerCase())){
+        btn.disabled=false; btn.textContent=_old; toast('Nama kategori sudah ada','danger'); return;
+      }
+      next.push({id:uid('c'), name, icon});
     }
-    closeModal(); toast('Tersimpan ke sheet categories','success'); renderPage();
+    if(API_ENABLED()){
+      const r = await apiFetch('syncPush',{categories:next},{retries:2});
+      if(!r || r.ok===false){
+        btn.disabled=false; btn.textContent=_old;
+        toast((r&&r.msg) || (r&&r.offline?'Backend offline — periksa GAS_URL':'Gagal menyimpan ke backend'),'danger');
+        return; // state lokal TIDAK berubah → user bisa retry tanpa duplikat
+      }
+      // backend OK → commit ke memori (tanpa men-trigger push ulang yg redundant)
+      _MEM['categories'] = next;
+    } else {
+      // mode offline (GAS belum diset) — simpan ke memori saja
+      _MEM['categories'] = next;
+      toast('Mode offline: data hanya tersimpan di memori (set GAS_URL utk persist)','warn');
+    }
+    closeModal();
+    if (API_ENABLED()) toast(id?'Kategori diperbarui di sheet categories':'Kategori baru tersimpan di sheet categories','success');
+    renderPage();
   };
 }
 
