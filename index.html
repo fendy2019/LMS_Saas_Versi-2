@@ -1433,7 +1433,8 @@ PAGES.categories = el => {
   el.querySelector('#add').onclick=()=>catForm();
   el.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>catForm(b.dataset.edit));
   el.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>confirmModal('Hapus kategori?',()=>{
-    DB.set('categories', DB.get('categories',[]).filter(x=>x.id!==b.dataset.del));
+    const next = DB.get('categories',[]).filter(x=>x.id!==b.dataset.del);
+    DB.set('categories', next); apiSync('syncPush',{categories: next});
     toast('Kategori dihapus','success'); renderPage();
   }));
 };
@@ -1448,7 +1449,7 @@ function catForm(id){
     const cats = DB.get('categories',[]);
     if(id){ const i=cats.findIndex(x=>x.id===id); cats[i]={...cats[i],name:f.name.value.trim(),icon:f.icon.value||'📁'}; }
     else cats.push({id:uid('c'),name:f.name.value.trim(),icon:f.icon.value||'📁'});
-    DB.set('categories',cats); closeModal(); toast('Tersimpan','success'); renderPage();
+    DB.set('categories',cats); apiSync('syncPush',{categories:cats}); closeModal(); toast('Tersimpan','success'); renderPage();
   };
 }
 
@@ -4280,8 +4281,18 @@ PAGES.iForum = el => {
   });
 };
 
-// Boot
-render();
+// Boot — hidrasi data dari backend dulu bila ada sesi tersimpan,
+// supaya refresh tidak otomatis logout (users belum ada di _MEM).
+(async function boot(){
+  try {
+    const s = session.get();
+    if (s && s.userId && API_ENABLED()){
+      try { await pullFromBackend(true); } catch(_){}
+      try { startAutoSync(); } catch(_){}
+    }
+  } catch(_){}
+  render();
+})();
 </script>
 </body>
 </html>
