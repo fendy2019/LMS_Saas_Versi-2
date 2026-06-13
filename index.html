@@ -349,8 +349,8 @@ const session = {
  *  di localStorage agar tidak bisa dibaca script pihak lain via XSS reflection).
  * ============================================================ */
 // Bisa di-override runtime via window.GAS_URL / window.CLIENT_HMAC (atau window.HMAC_SECRET)
-const GAS_URL     = (typeof window!=='undefined' && window.GAS_URL) || "https://script.google.com/macros/s/AKfycbxrdNcENIZLAZrvDt1FpaiTM1zKX6rvDWzAV7xOVpUovKHuaYX-oo2yTBS3ctMjwzUq/exec";
-const CLIENT_HMAC = (typeof window!=='undefined' && (window.CLIENT_HMAC || window.HMAC_SECRET)) || "HMAC_SECRET=V9kX4mP7tR2wQ8zN5cL1hF6aD3sJ9eB7yU2gK8nM4vC1xT5qW9rL6pZ3dH7fS2aY8nE4jR1uI6oP9bV5cX2tM7wQ3kL8yF1";
+const GAS_URL     = (typeof window!=='undefined' && window.GAS_URL) || "https://script.google.com/macros/s/AKfycbxHPHT9MqMsUvzJ7pnSyImXBQipNVwJMRxODuM2_NjM7gfNdvwO8X7hVkHjcuyMCus6/exec";
+const CLIENT_HMAC = (typeof window!=='undefined' && (window.CLIENT_HMAC || window.HMAC_SECRET)) || "V9kX4mP7tR2wQ8zN5cL1hF6aD3sJ9eB7yU2gK8nM4vC1xT5qW9rL6pZ3dH7fS2aY8nE4jR1uI6oP9bV5cX2tM7wQ3kL8yF1";
 const API_ENABLED = () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
 
 // JWT token store — sessionStorage = auto-clear saat tab ditutup
@@ -379,15 +379,17 @@ async function apiFetch(action, payload = {}, opts = {}){
       const ctrl = new AbortController();
       const tid = setTimeout(()=>ctrl.abort(), opts.timeout || 30000);
       const ts = Date.now();
-      // Bangun string kanonik SEKALI, lalu kirim apa adanya di body.payload.
-      // Backend memverifikasi byte yg sama persis -> hilangkan risiko mismatch rebuild.
-      const toSign = JSON.stringify({action, data: payload, ts});
-      const sig = await _hmacSign(toSign);
-      const body = { action, data: payload, ts, token: tokenStore.get(), payload: toSign, sig };
-      const res = await fetch(GAS_URL, {
+      // BULLETPROOF: tandatangani body MENTAH yg dikirim. Server verifikasi byte-byte
+      // yg sama persis dgn yg diterima (tanpa rebuild, tanpa re-stringify).
+      const envelope = { action, data: payload, ts, token: tokenStore.get() };
+      const raw = JSON.stringify(envelope);
+      const sig = await _hmacSign(raw);
+      // Sig dikirim via query-param + juga di body (mode fallback) supaya kompatibel.
+      const url = GAS_URL + (GAS_URL.indexOf('?')>=0 ? '&' : '?') + 'sig=' + encodeURIComponent(sig);
+      const res = await fetch(url, {
         method:'POST',
         headers:{'Content-Type':'text/plain;charset=utf-8'}, // hindari preflight
-        body: JSON.stringify(body),
+        body: raw,
         redirect:'follow',
         signal: ctrl.signal
       });
@@ -403,7 +405,7 @@ async function apiFetch(action, payload = {}, opts = {}){
     }
   }
   console.warn('[apiFetch]', action, 'gagal:', lastErr);
-  return { ok:false, offline:true, msg:'Tidak dapat terhubung ke server' };
+  return { ok:false, offline:true, msg:'Tidak dapat terhubung ke server: '+(lastErr&&lastErr.message||'') };
 }
 
 // fire-and-forget
