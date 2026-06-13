@@ -1444,12 +1444,18 @@ function catForm(id){
     body:`<form id="catF"><div class="field"><label>Nama Kategori</label><input class="input" name="name" value="${esc(c.name)}" required /></div>${emojiField('icon', c.icon, 'Emoji / Ikon Kategori')}</form>`,
     foot:`<button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn primary" id="cs">Simpan</button>`
   });
-  $('#cs').onclick=()=>{
+  $('#cs').onclick=async()=>{
     const f=$('#catF'); if(!f.name.value.trim()){toast('Nama wajib','danger');return;}
+    const btn=$('#cs'); btn.disabled=true; const _old=btn.textContent; btn.textContent='Menyimpan...';
     const cats = DB.get('categories',[]);
     if(id){ const i=cats.findIndex(x=>x.id===id); cats[i]={...cats[i],name:f.name.value.trim(),icon:f.icon.value||'📁'}; }
     else cats.push({id:uid('c'),name:f.name.value.trim(),icon:f.icon.value||'📁'});
-    DB.set('categories',cats); apiSync('syncPush',{categories:cats}); closeModal(); toast('Tersimpan','success'); renderPage();
+    DB.set('categories',cats);
+    if(API_ENABLED()){
+      const r = await apiFetch('syncPush',{categories:cats},{retries:2});
+      if(!r || r.ok===false){ btn.disabled=false; btn.textContent=_old; toast((r&&r.msg)||'Gagal menyimpan ke backend','danger'); return; }
+    }
+    closeModal(); toast('Tersimpan ke sheet categories','success'); renderPage();
   };
 }
 
