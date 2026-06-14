@@ -100,9 +100,6 @@ img{max-width:100%;display:block}
 /* ============== CARD ============== */
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow-sm);transition:all .2s}
 .card.hover:hover{transform:translateY(-3px);box-shadow:var(--shadow)}
-.pay-opt{transition:all .18s}
-.pay-opt.selected{background:linear-gradient(135deg,var(--primary-soft),rgba(99,102,241,.18))!important;border:2px solid var(--primary)!important;box-shadow:0 6px 18px -6px var(--primary);transform:translateY(-2px)}
-.pay-opt.selected::after{content:'✓';position:absolute;top:6px;right:8px;background:var(--primary);color:#fff;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700}
 .glass{background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--glass-border)}
 
 /* ============== AUTH ============== */
@@ -121,6 +118,8 @@ img{max-width:100%;display:block}
 .auth-card{width:100%;max-width:420px}
 .auth-card h2{font-size:26px;font-weight:800;margin-bottom:6px}
 .auth-card .sub{color:var(--text-soft);margin-bottom:24px}
+.demo-creds{background:var(--primary-soft);border:1px dashed var(--primary);border-radius:var(--radius-sm);padding:12px;margin-top:16px;font-size:12.5px}
+.demo-creds code{background:rgba(0,0,0,.06);padding:2px 6px;border-radius:4px;font-size:12px}
 .divider{display:flex;align-items:center;gap:10px;margin:18px 0;color:var(--muted);font-size:12px}
 .divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--border)}
 @media (max-width:900px){.auth-wrap{grid-template-columns:1fr}.auth-hero{display:none}}
@@ -295,69 +294,18 @@ canvas.chart{width:100%;max-height:280px}
  * Vanilla HTML / CSS / JS only. No external libraries.
  * ============================================================ */
 
-/* ---------------- STORAGE LAYER ----------------
- * IN-MEMORY ONLY — TIDAK menggunakan localStorage.
- * Sumber kebenaran ada di backend (Google Apps Script + Spreadsheet/Drive).
- * Cache di-hydrate via pullFromBackend(); setiap DB.set() utk key yg di-sync
- * otomatis push ke backend (debounced) supaya semua perangkat konsisten.
- * Session JWT tetap di sessionStorage (auto clear saat tab ditutup).
- * ============================================================ */
-const _MEM = Object.create(null);
-// Key data yg di-sinkron ke spreadsheet via syncPush (selain itu hanya cache UI)
-const SYNC_KEYS = new Set([
-  'users','courses','categories','instructors','transactions','coupons',
-  'reviews','threads','calendar','notifications','affiliates','memberships',
-  'broadcasts','materials','certificates','settings','paymentSettings','certTemplate',
-  'paymentTests','enrollments','submissions','modules','quizzes','assignments'
-]);
-const _pushQueue = {};
-let _pushTimer = null;
-let _pushFailRetry = 0;
-async function _flushPush(){
-  _pushTimer = null;
-  const payload = Object.assign({}, _pushQueue);
-  for (const k in _pushQueue) delete _pushQueue[k];
-  if (!Object.keys(payload).length) return;
-  try {
-    const r = await apiFetch('syncPush', payload, {retries:3});
-    if (!r || !r.ok){
-      Object.keys(payload).forEach(k=>{ if (!(k in _pushQueue)) _pushQueue[k] = payload[k]; });
-      _pushFailRetry = Math.min(_pushFailRetry + 1, 6);
-      const backoff = Math.min(30000, 1000 * Math.pow(2, _pushFailRetry));
-      if (typeof toast === 'function') toast('Gagal sinkron ke server, mencoba lagi…','warn');
-      _pushTimer = setTimeout(_flushPush, backoff);
-    } else {
-      _pushFailRetry = 0;
-    }
-  } catch(_){
-    Object.keys(payload).forEach(k=>{ if (!(k in _pushQueue)) _pushQueue[k] = payload[k]; });
-    _pushTimer = setTimeout(_flushPush, 3000);
-  }
-}
-function _schedulePush(key, val){
-  if (!SYNC_KEYS.has(key)) return;
-  if (typeof API_ENABLED === 'function' && !API_ENABLED()) return;
-  _pushQueue[key] = val;
-  if (_pushTimer) clearTimeout(_pushTimer);
-  _pushTimer = setTimeout(_flushPush, 400);
-}
-// Flush sisa queue saat tab ditutup (best effort)
-if (typeof window !== 'undefined'){
-  window.addEventListener('beforeunload', ()=>{
-    if (Object.keys(_pushQueue).length){ try { _flushPush(); } catch(_){} }
-  });
-}
+/* ---------------- STORAGE LAYER ---------------- */
 const DB = {
-  get(key, def){ return (key in _MEM) ? _MEM[key] : def; },
-  set(key, val){ _MEM[key] = val; _schedulePush(key, val); },
-  // kompatibilitas API lama (no-op)
-  load(){ return Object.assign({}, _MEM); },
-  save(d){ if (d && typeof d==='object') Object.assign(_MEM, d); },
+  k:'eduflow_v1',
+  load(){ try{ return JSON.parse(localStorage.getItem(this.k)||'{}'); }catch(e){ return {}; } },
+  save(d){ localStorage.setItem(this.k, JSON.stringify(d)); },
+  get(key, def){ const d=this.load(); return key in d? d[key] : def; },
+  set(key, val){ const d=this.load(); d[key]=val; this.save(d); },
 };
 const session = {
-  get(){ try{return JSON.parse(sessionStorage.getItem('eduflow_session')||'null');}catch(e){return null;} },
-  set(s){ try{ sessionStorage.setItem('eduflow_session', JSON.stringify(s)); }catch(e){} },
-  clear(){ try{ sessionStorage.removeItem('eduflow_session'); }catch(e){} }
+  get(){ try{return JSON.parse(localStorage.getItem('eduflow_session')||'null');}catch(e){return null;} },
+  set(s){ localStorage.setItem('eduflow_session', JSON.stringify(s)); },
+  clear(){ localStorage.removeItem('eduflow_session'); }
 };
 
 /* ============================================================
@@ -371,10 +319,9 @@ const session = {
  *  Login mengembalikan JWT — disimpan di sessionStorage (tidak persistent
  *  di localStorage agar tidak bisa dibaca script pihak lain via XSS reflection).
  * ============================================================ */
-// Bisa di-override runtime via window.GAS_URL / window.CLIENT_HMAC (atau window.HMAC_SECRET)
-const GAS_URL     = (typeof window!=='undefined' && window.GAS_URL) || "https://script.google.com/macros/s/AKfycbwyZsvGF-MDFWMlUNb97F5RMw2BxE_WHnjSzNuRWPflgmSL8FEioPz-UT-xp4cIvSTi/exec";
-const CLIENT_HMAC = (typeof window!=='undefined' && (window.CLIENT_HMAC || window.HMAC_SECRET)) || "V9kX4mP7tR2wQ8zN5cL1hF6aD3sJ9eB7yU2gK8nM4vC1xT5qW9rL6pZ3dH7fS2aY8nE4jR1uI6oP9bV5cX2tM7wQ3kL8yF1";
-const API_ENABLED = () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
+const GAS_URL    = "https://script.google.com/macros/s/AKfycbz1p0qVZOsPLOkTpzGdgz0xzG0NRcmbsu3R3X4L9-7svhMVqnEzspR6-5z5YkHx-UbIPQ/exec";    // <-- paste URL Web App GAS
+const CLIENT_HMAC= "8f7c2d91b5e4a8f36c7e2b1d9a4f5c8e7d3b6a9c2f1e8d4b7c5a9e2f6d8b1c4";                // <-- samakan dgn HMAC_SECRET di Script Properties
+const API_ENABLED= () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
 
 // JWT token store — sessionStorage = auto-clear saat tab ditutup
 const tokenStore = {
@@ -401,18 +348,14 @@ async function apiFetch(action, payload = {}, opts = {}){
     try {
       const ctrl = new AbortController();
       const tid = setTimeout(()=>ctrl.abort(), opts.timeout || 30000);
-      const ts = Date.now();
-      // BULLETPROOF: tandatangani body MENTAH yg dikirim. Server verifikasi byte-byte
-      // yg sama persis dgn yg diterima (tanpa rebuild, tanpa re-stringify).
-      const envelope = { action, data: payload, ts, token: tokenStore.get() };
-      const raw = JSON.stringify(envelope);
-      const sig = await _hmacSign(raw);
-      // Sig dikirim via query-param + juga di body (mode fallback) supaya kompatibel.
-      const url = GAS_URL + (GAS_URL.indexOf('?')>=0 ? '&' : '?') + 'sig=' + encodeURIComponent(sig);
-      const res = await fetch(url, {
+      const body = { action, data: payload, ts: Date.now(), token: tokenStore.get() };
+      // signed envelope: sig hanya melindungi {action,data,ts}
+      const toSign = JSON.stringify({action: body.action, data: body.data, ts: body.ts});
+      body.sig = await _hmacSign(toSign);
+      const res = await fetch(GAS_URL, {
         method:'POST',
         headers:{'Content-Type':'text/plain;charset=utf-8'}, // hindari preflight
-        body: raw,
+        body: JSON.stringify(body),
         redirect:'follow',
         signal: ctrl.signal
       });
@@ -428,7 +371,7 @@ async function apiFetch(action, payload = {}, opts = {}){
     }
   }
   console.warn('[apiFetch]', action, 'gagal:', lastErr);
-  return { ok:false, offline:true, msg:'Tidak dapat terhubung ke server: '+(lastErr&&lastErr.message||'') };
+  return { ok:false, offline:true, msg:'Tidak dapat terhubung ke server' };
 }
 
 // fire-and-forget
@@ -457,254 +400,45 @@ function fileToDataUrl(file){
     const r = new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(file);
   });
 }
-function blobToBase64(blob){
-  return new Promise((res,rej)=>{
-    const r = new FileReader();
-    r.onload = ()=> res(String(r.result).split(',')[1]||'');
-    r.onerror = rej;
-    r.readAsDataURL(blob);
-  });
-}
-/* ====== Chunk Upload v2 ======
-   - Pecah file → potongan 4MB (CHUNK_SIZE bisa diubah).
-   - uploadId deterministik (resume otomatis setelah refresh / offline).
-   - getUploadStatus → skip chunk yang sudah ada di server.
-   - Retry+backoff per chunk; mergeChunks di akhir.
-   - localStorage menyimpan progress untuk hint resume.
-*/
-const CHUNK_SIZE = (window.CHUNK_SIZE_MB ? Number(window.CHUNK_SIZE_MB) : 4) * 1024 * 1024;
-const _RESUME_MEM = Object.create(null);
-
-function _genUploadId(file){
-  const sig = `${file.name}|${file.size}|${file.lastModified}`;
-  let h = 0; for (let i=0;i<sig.length;i++){ h = (h*31 + sig.charCodeAt(i))|0; }
-  return 'u' + Math.abs(h).toString(36) + '_' + file.size.toString(36);
-}
-function _resumeRead(){ return Object.assign({}, _RESUME_MEM); }
-function _resumeSave(id, info){ _RESUME_MEM[id] = Object.assign({}, _RESUME_MEM[id]||{}, info, {ts:Date.now()}); }
-function _resumeDrop(id){ delete _RESUME_MEM[id]; }
-
 async function uploadToDrive(file, meta={}){
-  // SEMUA file → Google Drive via chunk upload. Tidak ada fallback localStorage.
+  // SEMUA file wajib ke Drive ID. Fallback ke localStorage DIHAPUS demi keamanan & quota.
+  const type = file.type.startsWith('video')?'video':file.type.startsWith('audio')?'audio':file.type.startsWith('image')?'image':'pdf';
   if (!API_ENABLED()){
-    return { ok:false, msg:'Backend (GAS_URL) belum dikonfigurasi.' };
+    return { ok:false, msg:'Backend (GAS_URL) belum dikonfigurasi. File hanya bisa diupload setelah backend aktif.' };
   }
-  const mime = file.type || 'application/octet-stream';
-  const type = mime.startsWith('video')?'video':mime.startsWith('audio')?'audio':mime.startsWith('image')?'image':(mime==='application/pdf'?'pdf':'doc');
-  const total = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
-  const uploadId = _genUploadId(file);
-
-  const report = (pct, idx, tot, label) => {
-    if (typeof meta.onProgress === 'function'){ try { meta.onProgress(pct, idx, tot, label||''); } catch(_){} }
-    if (typeof meta.onStatus === 'function'){ try { meta.onStatus(label||''); } catch(_){} }
-  };
-
-  try {
-    report(0, 0, total, `Memulai upload (${total} chunk @ ${(CHUNK_SIZE/1024/1024).toFixed(0)} MB)`);
-
-    // 1) cek progress di server (resume)
-    let done = new Set();
-    try {
-      const st = await apiFetch('getUploadStatus', { uploadId }, { retries:1, timeout:30000 });
-      if (st && st.ok && st.data && Array.isArray(st.data.uploadedChunks)){
-        st.data.uploadedChunks.forEach(i => { if (i < total) done.add(i); });
-      }
-    } catch(_){}
-    if (done.size){
-      report(Math.round(done.size*100/total), done.size, total, `Resume ${done.size}/${total} chunk`);
-    }
-    _resumeSave(uploadId, { name:file.name, size:file.size, total, mime });
-
-    // 2) kirim chunk yg belum ada (sequential agar urutan + memori aman)
-    for (let i = 0; i < total; i++){
-      if (done.has(i)) continue;
-      const start = i * CHUNK_SIZE;
-      const slice = file.slice(start, Math.min(start + CHUNK_SIZE, file.size));
-      const base64 = await blobToBase64(slice);
-
-      let ok = false, lastErr = null;
-      for (let attempt = 1; attempt <= 4 && !ok; attempt++){
-        try {
-          const r = await apiFetch('uploadChunk', {
-            uploadId, fileName: file.name, mime, totalSize: file.size,
-            chunkIndex: i, totalChunks: total, chunkData: base64,
-            title: meta.title || file.name, description: meta.description || ''
-          }, { timeout: 180000, retries: 0 });
-          if (!r || !r.ok) throw new Error((r && r.msg) || 'chunk gagal');
-          ok = true;
-        } catch(e){
-          lastErr = e;
-          report(Math.round(done.size*100/total), done.size, total,
-                 `Chunk ${i+1}/${total} gagal (percobaan ${attempt}): ${e.message||e}`);
-          await new Promise(r => setTimeout(r, 800 * attempt));
-        }
-      }
-      if (!ok){
-        _resumeSave(uploadId, { uploaded: Array.from(done) });
-        return { ok:false, msg:'Chunk '+(i+1)+'/'+total+' gagal terus: '+(lastErr && lastErr.message || lastErr) };
-      }
-      done.add(i);
-      _resumeSave(uploadId, { uploaded: Array.from(done) });
-      report(Math.round(done.size*100/total), done.size, total, `Mengupload chunk ${done.size}/${total}`);
-    }
-
-    // 3) merge di server
-    report(100, total, total, 'Menggabungkan file di server…');
-    const m = await apiFetch('mergeChunks', {
-      uploadId, fileName: file.name, mime, totalChunks: total,
+  // tidak ada batas ukuran di sisi klien — server akan validasi MIME & quota
+  try{
+    const base64 = await fileToBase64(file);
+    const r = await apiFetch('uploadFile', {
+      filename: file.name, mime: file.type || 'application/octet-stream', base64, type,
       title: meta.title || file.name, description: meta.description || ''
-    }, { timeout: 600000, retries: 1 });
-    if (!m || !m.ok) return { ok:false, msg:(m && m.msg) || 'Merge gagal' };
-
-    _resumeDrop(uploadId);
-    m.data.type = m.data.type || type;
-    m.data.mime = m.data.mime || mime;
-    report(100, total, total, 'Upload selesai ✔');
-    return m;
-  } catch(e){
-    return { ok:false, msg: String(e && e.message || e) };
-  }
+    }, { timeout: 180000, retries: 1 });
+    if (r && r.ok && r.data){ r.data.type = r.data.type || type; r.data.mime = r.data.mime || file.type; return r; }
+    return { ok:false, msg: (r && r.msg) || 'Upload ke Drive gagal' };
+  }catch(e){ return { ok:false, msg:String(e) }; }
 }
-
-/** Batalkan upload yang masih berjalan / sisa chunk di server. */
-async function cancelUpload(file){
-  if (!file) return;
-  const uploadId = _genUploadId(file);
-  try { await apiFetch('cleanupChunks', { uploadId }, { retries:1 }); } catch(_){}
-  _resumeDrop(uploadId);
-}
-
 async function deleteFromDrive(fileId){
   if (!fileId) return { ok:true };
   if (!API_ENABLED() || String(fileId).startsWith('local_')) return { ok:true };
   return apiFetch('deleteFile', { fileId }, { retries:1 });
 }
 
-/**
- * Selaraskan skema sheet (flat: modules/materials/quizzes/assignments dengan courseId+moduleId)
- * dengan skema frontend (modules nested di dalam course; field alias: calendar.date, threads.body).
- */
-function _normalizeBackendData(){
-  // ---- Calendar: backend pakai `start`/`end`, frontend baca `date`
-  const cal = _MEM.calendar || [];
-  if (Array.isArray(cal)){
-    cal.forEach(e=>{
-      if (e && e.date == null) e.date = e.start || e.startAt || e.createdAt || Date.now();
-    });
-  }
-  // ---- Threads: backend pakai `content`, frontend baca `body`
-  const ths = _MEM.threads || [];
-  if (Array.isArray(ths)){
-    ths.forEach(t=>{
-      if (t && t.body == null) t.body = t.content || '';
-      if (Array.isArray(t.replies)) t.replies.forEach(r=>{ if (r && r.body == null) r.body = r.content || ''; });
-      if (typeof t.likes !== 'number') t.likes = 0;
-      if (!Array.isArray(t.replies)) t.replies = [];
-    });
-  }
-  // ---- Nest modules + materials + quizzes + assignments ke dalam course
-  const courses = _MEM.courses || [];
-  const mods    = _MEM.modules || [];
-  const mats    = _MEM.materials || [];
-  const qzs     = _MEM.quizzes || [];
-  const asgs    = _MEM.assignments || [];
-  if (Array.isArray(courses) && courses.length){
-    courses.forEach(c=>{
-      // Hanya overwrite kalau backend benar2 punya modules utk course ini
-      const cMods = mods.filter(m=>m && m.courseId===c.id);
-      if (cMods.length){
-        // Tambahkan materi & quiz & assignment sebagai "module" agar UI lama tetap jalan
-        const list = [];
-        cMods.sort((a,b)=>(a.order||0)-(b.order||0)).forEach(m=>{
-          list.push({
-            id:m.id, title:m.title, type:'text', content:m.description||'',
-            duration:(m.duration||10)+':00', materialSource:'link', url:'', fileId:'',
-            _kind:'module'
-          });
-          mats.filter(x=>x.moduleId===m.id).sort((a,b)=>(a.order||0)-(b.order||0)).forEach(mt=>{
-            list.push({
-              id:mt.id, title:mt.title, type:(mt.type==='video'?'video':mt.type==='pdf'?'pdf':'text'),
-              content:mt.content||'', url:mt.url||'', fileId:mt.fileId||'',
-              duration:(mt.duration||10)+':00', materialSource: mt.fileId?'upload':'link',
-              materialId: mt.id, _kind:'material'
-            });
-          });
-          qzs.filter(x=>x.moduleId===m.id).forEach(q=>{
-            list.push({ id:q.id, title:q.title, type:'quiz', content:JSON.stringify(q.questions||[]),
-              passingScore:q.passingScore||70, duration:'15:00', _kind:'quiz' });
-          });
-          asgs.filter(x=>x.moduleId===m.id).forEach(a=>{
-            list.push({ id:a.id, title:a.title, type:'assignment', content:a.description||'',
-              deadline:a.deadline, maxScore:a.maxScore||100, duration:'60:00', _kind:'assignment' });
-          });
-        });
-        c.modules = list;
-      } else if (!Array.isArray(c.modules)){
-        c.modules = [];
-      }
-    });
-  }
-}
-
-async function pullFromBackend(silent){
+// 2-way sync: tarik data dari sheet ke localStorage (panggil di startup setelah login)
+async function pullFromBackend(){
   const r = await apiFetch('syncPull', {}, {retries:1});
   if (r && r.ok && r.data){
     const map = {
       users:'users', courses:'courses', categories:'categories', instructors:'instructors',
       transactions:'transactions', coupons:'coupons', reviews:'reviews', threads:'threads',
       calendar:'calendar', notifications:'notifications', affiliates:'affiliates',
-      memberships:'memberships', broadcasts:'broadcasts', materials:'materials',
-      certificates:'certificates', settings:'settings', paymentSettings:'paymentSettings',
-      certTemplate:'certTemplate',
-      modules:'modules', quizzes:'quizzes', assignments:'assignments',
-      submissions:'submissions', enrollments:'enrollments', paymentTests:'paymentTests'
+      memberships:'memberships', broadcasts:'broadcasts', materials:'materials'
     };
-    // Snapshot edit lokal yg masih di queue → jangan ditimpa hasil pull lama
-    const pendingKeys = Object.keys(_pushQueue||{});
     Object.entries(map).forEach(([k,sk])=>{
-      if (pendingKeys.indexOf(sk) >= 0) return; // ada edit pending → skip overwrite key ini
-      if (r.data[k] !== undefined && r.data[k] !== null) {
-        _MEM[sk] = r.data[k];
-      }
+      if (Array.isArray(r.data[k]) && r.data[k].length) DB.set(sk, r.data[k]);
     });
-    // Normalisasi schema backend ↔ frontend
-    try { _normalizeBackendData(); } catch(e){ console.warn('normalize', e); }
-    // SCAN Drive: file yang diupload manual ke Drive ID akan otomatis muncul sbg materi
-    try {
-      const ds = await apiFetch('listDriveFiles', {}, {retries:1});
-      if (ds && ds.ok && Array.isArray(ds.data)){
-        const mats = DB.get('materials',[]);
-        let added = 0;
-        ds.data.forEach(f=>{
-          if (!mats.some(m=>m.fileId===f.fileId)){
-            mats.unshift({
-              id:'mat_drv_'+f.fileId, title:f.name, type:f.type,
-              fileId:f.fileId, url:f.url, viewUrl:f.viewUrl,
-              mime:f.mime, size:f.size, createdAt:f.createdAt||Date.now(),
-              source:'drive-scan'
-            });
-            added++;
-          }
-        });
-        if (added){ DB.set('materials', mats); }
-      }
-    } catch(_){}
-    if (!silent) toast('Data tersinkron dari server','success');
+    toast('Data tersinkron dari server','success');
   }
 }
-// Auto-poll setiap 30 detik bila user sudah login & backend aktif.
-// Skip pull bila masih ada push pending (hindari overwrite edit lokal yg belum terkirim).
-let _syncTimer = null;
-function startAutoSync(){
-  if (_syncTimer) clearInterval(_syncTimer);
-  if (!API_ENABLED()) return;
-  _syncTimer = setInterval(()=>{
-    if (!state || !state.user) return;
-    if (_pushTimer) return; // ada edit lokal yg belum ke-push, skip cycle ini
-    pullFromBackend(true).then(()=>{ try{ render(); }catch(_){} });
-  }, 30000);
-}
-window.startAutoSync = startAutoSync;
 // push seluruh state lokal ke backend (sekali jalan saat first run)
 async function pushToBackend(){
   const payload = {
@@ -713,13 +447,7 @@ async function pushToBackend(){
     coupons:DB.get('coupons',[]), reviews:DB.get('reviews',[]), threads:DB.get('threads',[]),
     calendar:DB.get('calendar',[]), notifications:DB.get('notifications',[]),
     affiliates:DB.get('affiliates',[]), memberships:DB.get('memberships',[]),
-    broadcasts:DB.get('broadcasts',[]), materials:DB.get('materials',[]),
-    certificates:DB.get('certificates',[]), modules:DB.get('modules',[]),
-    quizzes:DB.get('quizzes',[]), assignments:DB.get('assignments',[]),
-    submissions:DB.get('submissions',[]), enrollments:DB.get('enrollments',[]),
-    paymentTests:DB.get('paymentTests',[]),
-    settings:DB.get('settings'), paymentSettings:DB.get('paymentSettings'),
-    certTemplate:DB.get('certTemplate')
+    broadcasts:DB.get('broadcasts',[]), materials:DB.get('materials',[])
   };
   return apiFetch('syncPush', payload);
 }
@@ -809,32 +537,154 @@ window.filterEmojiPicker = (fid,q)=>{
   });
 };
 
-/* ---------------- INIT DATA (tanpa dummy — semua dari backend) ---------------- */
+/* ---------------- SEED DATA ---------------- */
 function seed(){
   if(DB.get('seeded')) return;
-  // TIDAK ADA dummy course/user/transaksi/review/branding.
-  // Semua data (termasuk settings/branding) diisi dari backend via syncPull.
-  // Struktur kosong di sini hanya placeholder agar UI tidak crash sebelum sync pertama.
+  const categories = [
+    {id:'c1',name:'Digital Marketing',icon:'📈'},
+    {id:'c2',name:'Design',icon:'🎨'},
+    {id:'c3',name:'Programming',icon:'💻'},
+    {id:'c4',name:'AI & Data',icon:'🤖'},
+    {id:'c5',name:'Bisnis',icon:'💼'},
+  ];
+  const instructors = [
+    {id:'i1',name:'Andi Pratama',email:'andi@lms.com',expertise:'Digital Marketing',bio:'Praktisi marketing 10 tahun'},
+    {id:'i2',name:'Sari Wijaya',email:'sari@lms.com',expertise:'UI/UX Design',bio:'Senior Designer di Tokopedia'},
+    {id:'i3',name:'Budi Santoso',email:'budi@lms.com',expertise:'Web Development',bio:'Full-stack engineer'},
+    {id:'i4',name:'Maya Putri',email:'maya@lms.com',expertise:'AI Engineer',bio:'ML Researcher'},
+    {id:'i5',name:'Reza Hakim',email:'reza@lms.com',expertise:'Business Strategy',bio:'CEO startup unicorn'},
+  ];
+  const courseSpec = [
+    ['Digital Marketing Fundamentals','c1','i1',499000,'📈'],
+    ['SEO Mastery 2026','c1','i1',599000,'🔍'],
+    ['Google Ads Pro','c1','i1',799000,'📊'],
+    ['Meta Ads & Funnel','c1','i1',699000,'📱'],
+    ['UI/UX Design Bootcamp','c2','i2',899000,'🎨'],
+    ['Figma untuk Pemula','c2','i2',399000,'✏️'],
+    ['Web Development Lengkap','c3','i3',1299000,'💻'],
+    ['JavaScript Modern ES6+','c3','i3',699000,'⚡'],
+    ['Laravel 11 dari Nol','c3','i3',999000,'🛠️'],
+    ['AI Automation dengan n8n','c4','i4',1499000,'🤖'],
+  ];
+  const courses = courseSpec.map((s,i)=>({
+    id:'k'+(i+1), title:s[0], categoryId:s[1], instructorId:s[2], price:s[3], emoji:s[4],
+    description:'Pelajari '+s[0]+' dari nol hingga mahir dengan studi kasus nyata, project portfolio, dan sertifikat.',
+    status: i<8?'published':'draft',
+    level:['Pemula','Menengah','Mahir'][i%3],
+    duration: 8+i*2, // hours
+    enrolled: Math.floor(40+Math.random()*200),
+    rating: (4.2+Math.random()*0.7).toFixed(1),
+    createdAt: Date.now()-i*86400000*7,
+    modules:[
+      {id:uid('m'),title:'Pengenalan & Setup',type:'video',duration:'12:30',content:'Selamat datang di kursus '+s[0]+'!'},
+      {id:uid('m'),title:'Konsep Dasar',type:'video',duration:'18:45',content:'Pelajari fondasi penting.'},
+      {id:uid('m'),title:'Modul PDF: Cheatsheet',type:'pdf',content:'PDF Materi - '+s[0]},
+      {id:uid('m'),title:'Praktik Studi Kasus',type:'video',duration:'24:10',content:'Implementasi pada kasus nyata.'},
+      {id:uid('m'),title:'Quiz: Uji Pemahaman',type:'quiz',questions:[
+        {q:'Apa fungsi utama dari '+s[0]+'?',opts:['Hiburan','Membantu pekerjaan','Tidak ada','Lainnya'],a:1},
+        {q:'Tahun konten kursus ini relevan?',opts:['2010','2015','2026','2000'],a:2},
+        {q:'Berapa lama sebaiknya berlatih per hari?',opts:['Tidak perlu','15-30 menit','5 jam','24 jam'],a:1},
+      ]},
+      {id:uid('m'),title:'Assignment Akhir',type:'assignment',content:'Buat project portfolio berdasarkan materi.'},
+    ]
+  }));
+
+  // 50 peserta
+  const names=['Ahmad','Budi','Citra','Dewi','Eko','Fitri','Galih','Hani','Indra','Joko','Kartika','Lukman','Mira','Nadia','Oki','Putri','Qory','Rina','Sigit','Tomi','Umar','Vino','Wati','Xena','Yusuf','Zaki'];
+  const surn=['Saputra','Pratama','Wijaya','Santoso','Permata','Lestari','Hidayat','Maulana','Anggraini','Susanto'];
+  const students=[];
+  for(let i=0;i<50;i++){
+    const nm = names[i%names.length]+' '+surn[i%surn.length];
+    students.push({
+      id:'u'+(i+1),
+      name:nm,
+      email:`peserta${i+1}@lms.com`,
+      // PASSWORD TIDAK DISIMPAN DI FRONTEND — login via backend
+      role:'student',
+      joinedAt: Date.now()-Math.floor(Math.random()*180)*86400000,
+      status: i%9===0?'inactive':'active',
+      enrolled: courses.slice(0,Math.floor(Math.random()*4)+1).map(c=>({courseId:c.id,progress:Math.floor(Math.random()*100),completedModules:[]})),
+      wishlist:[],
+    });
+  }
+  // Hanya 3 akun DEMO yg simpan password lokal — bisa disembunyikan via Settings > Keamanan > showDemo
+  const users = [
+    {id:'admin1',name:'Administrator',email:'admin@lms.com',password:'Admin123!',role:'admin',joinedAt:Date.now()-86400000*365,status:'active',enrolled:[],wishlist:[],_demo:true},
+    {id:'student0',name:'Peserta Demo',email:'peserta@lms.com',password:'Peserta123!',role:'student',joinedAt:Date.now()-86400000*30,status:'active',
+      enrolled:[{courseId:'k1',progress:65,completedModules:[]},{courseId:'k5',progress:100,completedModules:[]},{courseId:'k7',progress:25,completedModules:[]}],
+      wishlist:['k3','k10'],_demo:true},
+    ...students,
+  ];
+
+  // Transaksi
+  const transactions=[];
+  for(let i=0;i<35;i++){
+    const u = users[2+Math.floor(Math.random()*50)];
+    const c = courses[Math.floor(Math.random()*courses.length)];
+    transactions.push({
+      id:'TRX'+(100000+i),
+      userId:u.id, userName:u.name,
+      courseId:c.id, courseTitle:c.title,
+      amount:c.price,
+      gateway:['midtrans','xendit','stripe','paypal'][i%4],
+      status:['success','success','success','pending','failed'][i%5],
+      createdAt: Date.now()-Math.floor(Math.random()*60)*86400000,
+    });
+  }
+
+  const reviews=[
+    {id:uid('rv'),courseId:'k1',userId:'student0',userName:'Peserta Demo',rating:5,text:'Materi sangat lengkap, instruktur ramah!',createdAt:Date.now()-86400000*3,approved:true},
+    {id:uid('rv'),courseId:'k5',userId:'u3',userName:'Citra Wijaya',rating:4,text:'Cocok untuk pemula, banyak praktik.',createdAt:Date.now()-86400000*10,approved:true},
+    {id:uid('rv'),courseId:'k1',userId:'u7',userName:'Galih Santoso',rating:5,text:'Worth it banget!',createdAt:Date.now()-86400000*7,approved:false},
+  ];
+
+  const coupons=[
+    {id:uid('cp'),code:'WELCOME10',type:'percent',value:10,expiry:Date.now()+86400000*60,active:true},
+    {id:uid('cp'),code:'HEMAT50K',type:'nominal',value:50000,expiry:Date.now()+86400000*30,active:true},
+    {id:uid('cp'),code:'NEWUSER',type:'percent',value:25,expiry:Date.now()+86400000*14,active:true},
+  ];
+
+  const threads=[
+    {id:uid('th'),courseId:'k1',userId:'student0',userName:'Peserta Demo',title:'Cara optimasi SEO on-page?',body:'Mohon penjelasan lebih detail tentang strategi keyword.',replies:[
+      {userId:'i1',userName:'Andi Pratama (Instruktur)',body:'Mulai dari riset kata kunci dengan tools seperti Ahrefs.',likes:3,createdAt:Date.now()-86400000},
+    ],likes:5,createdAt:Date.now()-86400000*2},
+  ];
+
+  const settings={
+    general:{name:'EduFlow LMS', tagline:'Belajar Tanpa Batas', logo:'🎓'},
+    seo:{title:'EduFlow LMS - Platform Kursus Online',desc:'Belajar skill digital dari para ahli.'},
+    // API keys TIDAK lagi disimpan di frontend — ada di Script Properties GAS.
+    payment:{midtransKey:'***di-Script-Properties***',xenditKey:'***',stripeKey:'***',paypalKey:'***'},
+    smtp:{host:'smtp.gmail.com',port:587,user:'noreply@lms.com'},
+    security:{sessionTimeout:60,minPwLen:8,showDemo:true},
+  };
+
+  const calendar=[
+    {id:uid('ev'),title:'Live Session: SEO Mastery',date:Date.now()+86400000*2,courseId:'k2'},
+    {id:uid('ev'),title:'Deadline Assignment Digital Marketing',date:Date.now()+86400000*5,courseId:'k1'},
+    {id:uid('ev'),title:'Webinar AI Trends 2026',date:Date.now()+86400000*10,courseId:'k10'},
+  ];
+
+  const notifications=[
+    {id:uid('n'),userId:'student0',title:'Selamat datang!',body:'Mulai perjalanan belajar Anda',read:false,createdAt:Date.now()-86400000},
+    {id:uid('n'),userId:'student0',title:'Kursus baru tersedia',body:'AI Automation kini tersedia',read:false,createdAt:Date.now()-3600000},
+  ];
+
   const data = {
-    seeded:true,
-    categories:[], instructors:[], courses:[], users:[],
-    transactions:[], reviews:[], coupons:[], threads:[],
-    calendar:[], notifications:[], materials:[], certificates:[],
-    affiliates:[], broadcasts:[], memberships:[],
-    settings:{
-      general:{name:'', tagline:'', logo:'🎓'},
-      seo:{title:'', desc:''},
-      payment:{midtransKey:'',xenditKey:'',stripeKey:'',paypalKey:''},
-      smtp:{host:'',port:587,user:''},
-      security:{sessionTimeout:60,minPwLen:8},
-    },
-    cart:{},
+    seeded:true, categories, instructors, courses, users, transactions, reviews, coupons, threads, settings, calendar, notifications,
+    affiliates:[{id:'student0',code:'PESERTA-REF',clicks:42,signups:5,earnings:250000}],
+    memberships:[
+      {id:'free',name:'Free',price:0,features:['3 kursus gratis','Akses komunitas','Tidak ada sertifikat']},
+      {id:'basic',name:'Basic',price:99000,features:['10 kursus/bulan','Forum support','Sertifikat dasar']},
+      {id:'premium',name:'Premium',price:299000,features:['Semua kursus','Live session','Sertifikat premium','Mentor 1-on-1']},
+      {id:'ent',name:'Enterprise',price:1499000,features:['Tim 10 user','SSO','Custom branding','Dedicated support']},
+    ],
+    broadcasts:[],
+    cart: {},
   };
   Object.entries(data).forEach(([k,v])=>DB.set(k,v));
 }
 seed();
-
-
 
 /* ---------------- STATE ---------------- */
 const state = {
@@ -862,7 +712,6 @@ function checkLogin(){
         return false;
       }
       state.user = u;
-      if (u.cart && typeof u.cart === 'object') state.cart = Object.assign({}, u.cart);
       return true;
     }
   }
@@ -870,11 +719,30 @@ function checkLogin(){
 }
 
 function login(email, password, remember){
-  // Otentikasi 100% di backend (Code.gs). Tidak ada fallback password lokal.
-  if (!API_ENABLED()){
-    return Promise.resolve({ok:false, msg:'Backend belum dikonfigurasi (GAS_URL). Hubungi admin.'});
+  // 1) JIKA backend aktif → server adalah sumber kebenaran (password tidak dicek lokal)
+  if (API_ENABLED()){
+    // async path: caller akan menerima Promise via window.loginAsync; fungsi sync ini
+    // hanya dipakai bila backend offline.
+    return loginAsync(email, password, remember);
   }
-  return loginAsync(email, password, remember);
+  // 2) Offline / demo mode → cek lokal terbatas (hanya akun bertanda _demo)
+  const users = DB.get('users',[]);
+  let u = users.find(x=>x._demo && x.email.toLowerCase()===email.toLowerCase() && x.password===password);
+  if(!u){
+    const ins = DB.get('instructors',[]).find(x=>x.email.toLowerCase()===email.toLowerCase());
+    if(ins){
+      const pw = ins.password || 'Instruktur123!';
+      if(password === pw){
+        u = { id:ins.id, name:ins.name, email:ins.email, role:'instructor', status:'active',
+              expertise:ins.expertise||'', bio:ins.bio||'', permissions:ins.permissions||{}, joinedAt:ins.joinedAt||Date.now(), _demo:true };
+      }
+    }
+  }
+  if(!u) return {ok:false,msg:'Backend offline. Hanya akun demo yang bisa login.'};
+  if(u.status==='inactive') return {ok:false,msg:'Akun dinonaktifkan'};
+  session.set({userId:u.id, loginAt:Date.now(), remember:!!remember});
+  state.user = u;
+  return {ok:true};
 }
 async function loginAsync(email, password, remember){
   const r = await apiFetch('login', {email, password});
@@ -886,17 +754,19 @@ async function loginAsync(email, password, remember){
   DB.set('users', us);
   session.set({userId:r.user.id, loginAt:Date.now(), remember:!!remember});
   state.user = safe;
-  if (safe.cart && typeof safe.cart === 'object') state.cart = Object.assign({}, safe.cart);
   return {ok:true};
 }
 function logout(){ session.clear(); tokenStore.clear(); state.user=null; render(); }
 function register(data){
   if (API_ENABLED()) return registerAsync(data);
-  // Backend belum dikonfigurasi → tolak. Password TIDAK pernah disimpan plaintext di localStorage.
-  return Promise.resolve({
-    ok:false,
-    msg:'Registrasi memerlukan backend aktif. Set GAS_URL pada Code.gs (deploy Web App) terlebih dahulu.'
-  });
+  // offline demo: simpan ke local saja (tetap tanpa kirim plaintext keluar)
+  const users = DB.get('users',[]);
+  if(users.some(u=>u.email.toLowerCase()===data.email.toLowerCase())) return {ok:false,msg:'Email sudah terdaftar'};
+  const minLen = DB.get('settings').security?.minPwLen||8;
+  if(data.password.length < minLen) return {ok:false,msg:`Password minimal ${minLen} karakter`};
+  const nu = {id:uid('u'),name:data.name,email:data.email,password:data.password,role:'student',joinedAt:Date.now(),status:'active',enrolled:[],wishlist:[],_demo:true};
+  users.push(nu); DB.set('users',users);
+  return {ok:true,user:nu};
 }
 async function registerAsync(data){
   const r = await apiFetch('register', {name:data.name, email:data.email, password:data.password});
@@ -968,7 +838,12 @@ function loginForm(){
       <button class="btn primary full" type="submit">Masuk</button>
       <div class="divider">atau</div>
       <button class="btn ghost full" type="button" data-go="register">Buat akun baru</button>
-      ${''/* Akun demo dihapus dari frontend. User & password dikelola di Code.gs (backend) */}
+      ${(DB.get('settings').security?.showDemo!==false) ? `<div class="demo-creds">
+        <b>🔐 Akun Demo:</b><br>
+        Admin: <code>admin@lms.com</code> / <code>Admin123!</code><br>
+        Peserta: <code>peserta@lms.com</code> / <code>Peserta123!</code><br>
+        Instruktur: <code>instruktur@lms.com</code> / <code>Instruktur123!</code>
+      </div>` : ''}
     </form>
   `;
 }
@@ -1031,8 +906,6 @@ function bindAuth(mode){
         const r = (res && typeof res.then === 'function') ? await res : res;
         if(!r.ok){ toast(r.msg,'danger'); return; }
         toast('Login berhasil','success');
-        try { await pullFromBackend(true); } catch(_){}
-        startAutoSync();
         render();
       } finally { if(btn){btn.disabled=false; btn.textContent='Masuk';} }
     };
@@ -1287,9 +1160,8 @@ PAGES.dashboard = el => {
   const courses = DB.get('courses',[]);
   const users = DB.get('users',[]);
   const trx = DB.get('transactions',[]);
-  const _amt = t => (t.amount!=null? t.amount : (t.total!=null? t.total : 0));
   const success = trx.filter(t=>t.status==='success');
-  const rev = success.reduce((a,t)=>a+_amt(t),0);
+  const rev = success.reduce((a,t)=>a+t.amount,0);
   el.innerHTML = `
     <div class="page-head">
       <div><h2>Selamat datang, ${esc(state.user.name)} 👋</h2><p>Berikut ringkasan platform Anda hari ini.</p></div>
@@ -1323,7 +1195,7 @@ PAGES.dashboard = el => {
         <b class="text-lg mb-2" style="display:block">Transaksi Terbaru</b>
         <div class="table-wrap"><table class="table">
           <thead><tr><th>ID</th><th>Peserta</th><th>Kursus</th><th>Status</th></tr></thead>
-          <tbody>${trx.slice(0,6).map(t=>{ const ttl=t.courseTitle||(Array.isArray(t.courseTitles)?t.courseTitles.join(', '):''); return `<tr><td><code style="font-size:11px">${t.id}</code></td><td>${esc(t.userName||'')}</td><td>${esc(ttl)}</td><td><span class="badge ${t.status==='success'?'success':t.status==='pending'?'warn':'danger'}">${t.status}</span></td></tr>`;}).join('')}</tbody>
+          <tbody>${trx.slice(0,6).map(t=>`<tr><td><code style="font-size:11px">${t.id}</code></td><td>${esc(t.userName)}</td><td>${esc(t.courseTitle)}</td><td><span class="badge ${t.status==='success'?'success':t.status==='pending'?'warn':'danger'}">${t.status}</span></td></tr>`).join('')}</tbody>
         </table></div>
       </div>
       <div class="card">
@@ -1346,7 +1218,7 @@ function genLast7Days(trx){
   for(let i=6;i>=0;i--){
     const d=new Date(); d.setDate(d.getDate()-i); d.setHours(0,0,0,0);
     const next=d.getTime()+86400000;
-    const tot = trx.filter(t=>t.createdAt>=d.getTime()&&t.createdAt<next).reduce((a,t)=>a+(t.amount!=null?t.amount:(t.total!=null?t.total:0)),0);
+    const tot = trx.filter(t=>t.createdAt>=d.getTime()&&t.createdAt<next).reduce((a,t)=>a+t.amount,0);
     days.push({label:['Min','Sen','Sel','Rab','Kam','Jum','Sab'][d.getDay()], v: tot||Math.floor(Math.random()*2000000)});
   }
   return days;
@@ -1530,18 +1402,8 @@ PAGES.categories = el => {
   `;
   el.querySelector('#add').onclick=()=>catForm();
   el.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>catForm(b.dataset.edit));
-  el.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>confirmModal('Hapus kategori?',async()=>{
-    const id = b.dataset.del;
-    const courses = DB.get('courses',[]);
-    if (courses.some(x=>x.categoryId===id)){
-      toast('Tidak bisa dihapus: masih ada kursus pada kategori ini','danger'); return;
-    }
-    const next = DB.get('categories',[]).filter(x=>x.id!==id);
-    if (API_ENABLED()){
-      const r = await apiFetch('syncPush',{categories: next},{retries:2});
-      if(!r || r.ok===false){ toast((r&&r.msg)||'Gagal menghapus di backend','danger'); return; }
-    }
-    _MEM['categories'] = next;
+  el.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>confirmModal('Hapus kategori?',()=>{
+    DB.set('categories', DB.get('categories',[]).filter(x=>x.id!==b.dataset.del));
     toast('Kategori dihapus','success'); renderPage();
   }));
 };
@@ -1551,42 +1413,12 @@ function catForm(id){
     body:`<form id="catF"><div class="field"><label>Nama Kategori</label><input class="input" name="name" value="${esc(c.name)}" required /></div>${emojiField('icon', c.icon, 'Emoji / Ikon Kategori')}</form>`,
     foot:`<button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn primary" id="cs">Simpan</button>`
   });
-  $('#cs').onclick=async()=>{
+  $('#cs').onclick=()=>{
     const f=$('#catF'); if(!f.name.value.trim()){toast('Nama wajib','danger');return;}
-    const btn=$('#cs'); btn.disabled=true; const _old=btn.textContent; btn.textContent='Menyimpan...';
-    // Bangun snapshot BARU tanpa memutasi state lokal dulu (agar bisa di-rollback kalau backend gagal)
-    const curr = DB.get('categories',[]);
-    const next = curr.map(x=>({...x}));
-    const name = f.name.value.trim();
-    const icon = f.icon.value || '📁';
-    if(id){
-      const i = next.findIndex(x=>x.id===id);
-      if(i<0){ btn.disabled=false; btn.textContent=_old; toast('Kategori tidak ditemukan','danger'); return; }
-      next[i] = {...next[i], name, icon};
-    } else {
-      // cegah duplikat nama (case-insensitive)
-      if (next.some(x => (x.name||'').toLowerCase() === name.toLowerCase())){
-        btn.disabled=false; btn.textContent=_old; toast('Nama kategori sudah ada','danger'); return;
-      }
-      next.push({id:uid('c'), name, icon});
-    }
-    if(API_ENABLED()){
-      const r = await apiFetch('syncPush',{categories:next},{retries:2});
-      if(!r || r.ok===false){
-        btn.disabled=false; btn.textContent=_old;
-        toast((r&&r.msg) || (r&&r.offline?'Backend offline — periksa GAS_URL':'Gagal menyimpan ke backend'),'danger');
-        return; // state lokal TIDAK berubah → user bisa retry tanpa duplikat
-      }
-      // backend OK → commit ke memori (tanpa men-trigger push ulang yg redundant)
-      _MEM['categories'] = next;
-    } else {
-      // mode offline (GAS belum diset) — simpan ke memori saja
-      _MEM['categories'] = next;
-      toast('Mode offline: data hanya tersimpan di memori (set GAS_URL utk persist)','warn');
-    }
-    closeModal();
-    if (API_ENABLED()) toast(id?'Kategori diperbarui di sheet categories':'Kategori baru tersimpan di sheet categories','success');
-    renderPage();
+    const cats = DB.get('categories',[]);
+    if(id){ const i=cats.findIndex(x=>x.id===id); cats[i]={...cats[i],name:f.name.value.trim(),icon:f.icon.value||'📁'}; }
+    else cats.push({id:uid('c'),name:f.name.value.trim(),icon:f.icon.value||'📁'});
+    DB.set('categories',cats); closeModal(); toast('Tersimpan','success'); renderPage();
   };
 }
 
@@ -1811,7 +1643,7 @@ PAGES.materials = el => {
             ${m.description?`<p class="text-sm" style="margin-top:6px">${esc(m.description.slice(0,90))}${m.description.length>90?'…':''}</p>`:''}
             ${m.fallback?'<div class="badge warn" style="margin-top:6px">tersimpan lokal</div>':''}
             <div class="flex gap-1 mt-2" style="flex-wrap:wrap">
-              <button class="btn sm primary" data-pv="${m.id}">👁️ Preview</button>
+              <a class="btn sm primary" href="${esc(m.viewUrl||m.url)}" target="_blank" rel="noopener">👁️ Preview</a>
               <button class="btn sm ghost" data-ed="${m.id}">Edit</button>
               <button class="btn sm danger" data-rm="${m.id}">Hapus</button>
             </div>
@@ -1822,7 +1654,6 @@ PAGES.materials = el => {
     $$('[data-t]').forEach(b=>b.onclick=()=>{filter=b.dataset.t; draw();});
     $('#upMat').onclick = ()=>materialForm();
     $$('[data-ed]').forEach(b=>b.onclick=()=>materialForm(b.dataset.ed));
-    $$('[data-pv]').forEach(b=>b.onclick=()=>openMaterialPreview(b.dataset.pv));
     $$('[data-rm]').forEach(b=>b.onclick=()=>{
       const id = b.dataset.rm;
       const mat = DB.get('materials',[]).find(x=>x.id===id);
@@ -1838,32 +1669,6 @@ PAGES.materials = el => {
     });
   };
   draw();
-};
-
-window.openMaterialPreview = function(id){
-  const mat = DB.get('materials',[]).find(x=>x.id===id);
-  if(!mat){ toast('Materi tidak ditemukan','danger'); return; }
-  const driveId = mat.fileId || (mat.url && (mat.url.match(/\/d\/([^/]+)/)?.[1] || mat.url.match(/[?&]id=([^&]+)/)?.[1])) || '';
-  const previewSrc = driveId
-    ? `https://drive.google.com/file/d/${driveId}/preview`
-    : (mat.viewUrl || mat.url || '').replace(/\/view(\?.*)?$/, '/preview');
-  const t = (mat.type||'').toLowerCase();
-  let body = '';
-  if (previewSrc){
-    if (t==='audio' && !driveId){
-      body = `<audio src="${esc(previewSrc)}" controls controlsList="nodownload" style="width:100%"></audio>`;
-    } else if (t==='image' && !driveId){
-      body = `<img src="${esc(previewSrc)}" alt="${esc(mat.title)}" style="max-width:100%;border-radius:8px"/>`;
-    } else {
-      body = `<div style="width:100%;height:75vh;background:#000;border-radius:8px;overflow:hidden">
-        <iframe src="${esc(previewSrc)}" style="width:100%;height:100%;border:0" allow="autoplay; encrypted-media; fullscreen" allowfullscreen sandbox="allow-scripts allow-same-origin allow-popups allow-presentation"></iframe>
-      </div>`;
-    }
-  } else {
-    body = `<div class="empty">File tidak memiliki URL yang dapat di-preview.</div>`;
-  }
-  modal({ title:`👁️ ${mat.title}`, size:'xl', body,
-    foot:`<button class="btn ghost" onclick="closeModal()">Tutup</button>` });
 };
 
 function materialForm(id){
@@ -2669,9 +2474,7 @@ PAGES.transactions = el => {
             canSuccess?`<button class="btn sm success" data-ok="${t.id}">✓ Success</button>`:'',
             canRefund?`<button class="btn sm danger" data-rf="${t.id}">↩ Refund</button>`:''
           ].filter(Boolean).join(' ') || '<span class="muted text-sm">-</span>';
-          const title = t.courseTitle || (Array.isArray(t.courseTitles)? t.courseTitles.join(', ') : '');
-          const amt = t.amount!=null? t.amount : (t.total!=null? t.total : 0);
-          return `<tr><td><code style="font-size:11px">${t.id}</code></td><td>${esc(t.userName||'')}</td><td>${esc(title)}</td><td><span class="badge">${esc(t.gateway||'')}</span></td><td><b>${fmtRp(amt)}</b></td>
+          return `<tr><td><code style="font-size:11px">${t.id}</code></td><td>${esc(t.userName)}</td><td>${esc(t.courseTitle)}</td><td><span class="badge">${t.gateway}</span></td><td><b>${fmtRp(t.amount)}</b></td>
           <td><span class="badge ${t.status==='success'?'success':t.status==='pending'?'warn':'danger'}">${t.status}</span></td>
           <td>${fmtDate(t.createdAt)}</td>
           <td>${actions}</td></tr>`;
@@ -2679,20 +2482,24 @@ PAGES.transactions = el => {
       </table></div>
     `;
     el.querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{filter=b.dataset.f;render();});
-    el.querySelectorAll('[data-ok]').forEach(b=>b.onclick=()=>confirmModal('Tandai transaksi ini SUCCESS & aktifkan akses kursus peserta?', async ()=>{
-      const r = await apiFetch('confirmPayment', { id: b.dataset.ok });
-      if (!r || !r.ok){ toast('Gagal: '+((r&&r.msg)||'unknown'),'danger'); return; }
-      await pullFromBackend(true);
-      toast('Transaksi dikonfirmasi success','success');
-      if (state.user){ const u=(DB.get('users',[])||[]).find(x=>x.id===state.user.id); if(u) state.user=u; }
-      PAGES.transactions(el);
+    el.querySelectorAll('[data-ok]').forEach(b=>b.onclick=()=>confirmModal('Tandai transaksi ini SUCCESS & aktifkan akses kursus peserta?',()=>{
+      const ts=DB.get('transactions',[]); const ix=ts.findIndex(x=>x.id===b.dataset.ok);
+      if(ix<0) return;
+      const t = ts[ix]; t.status='success';
+      const us=DB.get('users',[]); const ui=us.findIndex(u=>u.id===t.userId);
+      if(ui>=0 && !us[ui].enrolled.some(e=>e.courseId===t.courseId)){
+        us[ui].enrolled.push({courseId:t.courseId,progress:0,completedModules:[]});
+        DB.set('users',us); apiSync('syncPush',{users:us});
+        if(state.user && state.user.id===us[ui].id) state.user=us[ui];
+      }
+      DB.set('transactions',ts); apiSync('syncPush',{transactions:ts});
+      toast('Transaksi dikonfirmasi success','success'); render();
     }));
-    el.querySelectorAll('[data-rf]').forEach(b=>b.onclick=()=>confirmModal('Proses refund transaksi ini?', async ()=>{
-      const r = await apiFetch('refundPayment', { id: b.dataset.rf });
-      if (!r || !r.ok){ toast('Gagal: '+((r&&r.msg)||'unknown'),'danger'); return; }
-      await pullFromBackend(true);
-      toast('Refund diproses','success');
-      PAGES.transactions(el);
+    el.querySelectorAll('[data-rf]').forEach(b=>b.onclick=()=>confirmModal('Proses refund transaksi ini?',()=>{
+      const ts=DB.get('transactions',[]); const ix=ts.findIndex(x=>x.id===b.dataset.rf);
+      if(ix<0) return;
+      ts[ix].status='refund'; DB.set('transactions',ts); apiSync('syncPush',{transactions:ts});
+      toast('Refund diproses','success'); render();
     }));
   };
   render();
@@ -3392,7 +3199,7 @@ PAGES.reports = el => {
   el.innerHTML = `
     <div class="page-head"><div><h2>Laporan</h2><p>Analitik & insight platform</p></div></div>
     <div class="stats">
-      ${statCard('Pendapatan',fmtRp(trx.reduce((a,b)=>a+(b.amount!=null?b.amount:(b.total!=null?b.total:0)),0)),'💰','')}
+      ${statCard('Pendapatan',fmtRp(trx.reduce((a,b)=>a+b.amount,0)),'💰','')}
       ${statCard('Penjualan',trx.length,'🛒','')}
       ${statCard('Kursus Terlaris',courses.sort((a,b)=>b.enrolled-a.enrolled)[0]?.title||'-','🏆','')}
       ${statCard('Peserta Aktif',DB.get('users',[]).filter(u=>u.status==='active'&&u.role==='student').length,'🔥','')}
@@ -3452,16 +3259,11 @@ PAGES.settings = el => {
       })[tab]}</div>
     `;
     el.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{tab=b.dataset.t;draw();});
-    el.querySelector('#gf').onsubmit=async e=>{
+    el.querySelector('#gf').onsubmit=e=>{
       e.preventDefault(); const f=e.target;
       const ns = DB.get('settings');
       Object.keys(ns[tab]).forEach(k=>{ if(f[k]) ns[tab][k] = isNaN(+f[k].value)||f[k].type==='text'||f[k].type==='email'?f[k].value:+f[k].value; });
-      DB.set('settings',ns);
-      try {
-        const r = await apiFetch('syncPush', { settings: ns }, { retries:1 });
-        if (r && r.ok) toast('Pengaturan disimpan ke backend','success');
-        else toast('Tersimpan lokal — backend: '+((r&&r.msg)||'gagal'),'warning');
-      } catch(err){ toast('Tersimpan lokal — '+err.message,'warning'); }
+      DB.set('settings',ns); toast('Pengaturan disimpan','success');
     };
   };
   draw();
@@ -3629,17 +3431,8 @@ function openCourse(cid){
   });
 }
 window.openCourse = openCourse;
-function _persistCart(){
-  try{
-    if (!state.user) return;
-    const us = DB.get('users',[]); const ix = us.findIndex(x=>x.id===state.user.id);
-    if (ix<0) return;
-    us[ix].cart = Object.assign({}, state.cart||{});
-    DB.set('users', us); state.user = us[ix];
-  }catch(e){}
-}
 window.addToCart = (cid)=>{
-  state.cart[cid] = 1; DB.set('cart',state.cart); _persistCart(); toast('Ditambahkan ke keranjang','success'); render();
+  state.cart[cid] = 1; DB.set('cart',state.cart); toast('Ditambahkan ke keranjang','success'); render();
 };
 window.toggleWish = (cid)=>{
   const us=DB.get('users',[]); const ix=us.findIndex(x=>x.id===state.user.id);
@@ -3648,7 +3441,7 @@ window.toggleWish = (cid)=>{
   else us[ix].wishlist.push(cid);
   DB.set('users',us); state.user=us[ix]; toast('Wishlist diperbarui','success'); closeModal();
 };
-window.buyNow=(cid)=>{state.cart={[cid]:1};DB.set('cart',state.cart);_persistCart();state.route='cart';closeModal();render();};
+window.buyNow=(cid)=>{state.cart={[cid]:1};DB.set('cart',state.cart);state.route='cart';closeModal();render();};
 window.reviewForm=(cid)=>{
   closeModal();
   setTimeout(()=>{
@@ -3705,43 +3498,21 @@ window.openModule = (cid,mid)=>{
   const noSel = 'user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-user-drag:none;';
   let body='';
   if(m.type==='video'){
-    // Tentukan sumber video. Prioritas: fileId Drive -> URL Drive -> URL langsung (mp4/webm/ogg) -> YouTube/Vimeo
-    const driveId = m.fileId || (m.url && (m.url.match(/\/d\/([^/]+)/)?.[1] || m.url.match(/[?&]id=([^&]+)/)?.[1])) || '';
-    const rawUrl = m.url||'';
-    const isYT = /youtube\.com|youtu\.be/i.test(rawUrl);
-    const isVimeo = /vimeo\.com/i.test(rawUrl);
-    const isDirectVideo = /\.(mp4|webm|ogg|m4v|mov)(\?|$)/i.test(rawUrl);
-    let playerHtml = '';
-    if (driveId){
-      const src = `https://drive.google.com/file/d/${driveId}/preview`;
-      playerHtml = `<iframe src="${esc(src)}" style="width:100%;height:100%;border:0" allow="autoplay; encrypted-media; fullscreen" allowfullscreen sandbox="allow-scripts allow-same-origin allow-popups allow-presentation"></iframe>`;
-    } else if (isYT){
-      const yid = rawUrl.match(/(?:v=|youtu\.be\/|embed\/)([A-Za-z0-9_-]{6,})/)?.[1] || '';
-      playerHtml = yid ? `<iframe src="https://www.youtube.com/embed/${yid}?rel=0" style="width:100%;height:100%;border:0" allow="autoplay; encrypted-media; fullscreen" allowfullscreen></iframe>` : '';
-    } else if (isVimeo){
-      const vid = rawUrl.match(/vimeo\.com\/(\d+)/)?.[1] || '';
-      playerHtml = vid ? `<iframe src="https://player.vimeo.com/video/${vid}" style="width:100%;height:100%;border:0" allow="autoplay; fullscreen" allowfullscreen></iframe>` : '';
-    } else if (isDirectVideo){
-      playerHtml = `<video src="${esc(rawUrl)}" controls controlsList="nodownload" oncontextmenu="return false" style="width:100%;height:100%;background:#000" playsinline></video>`;
-    } else if (rawUrl){
-      playerHtml = `<iframe src="${esc(rawUrl)}" style="width:100%;height:100%;border:0" allow="autoplay; fullscreen" allowfullscreen sandbox="allow-scripts allow-same-origin allow-popups allow-presentation"></iframe>`;
-    }
-    body = `<div style="${noSel};position:relative" oncontextmenu="return false">
-      ${playerHtml ? `
-        <div style="position:relative;width:100%;height:70vh;background:#000;border-radius:10px;overflow:hidden">
-          ${playerHtml}
-          <div style="${wmStyle}">${wmText}</div>
-        </div>
-      ` : `
-        <div class="card" style="text-align:center;padding:40px">
-          <div style="font-size:60px">🎬</div>
-          <b>${esc(m.title)}</b>
-          <p class="muted">Video belum tersedia. Hubungi instruktur.</p>
-        </div>
-      `}
-      <div class="muted text-sm mt-1">🔒 Streaming only — download &amp; klik-kanan dinonaktifkan.</div>
-      ${m.content?`<p class="mt-2" style="${noSel}">${esc(m.content)}</p>`:''}
-    </div>`;
+    body = `<div class="vp" id="vp" style="${noSel}position:relative" oncontextmenu="return false">
+      <div class="play" id="playBtn"><svg width="30" height="30" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg></div>
+      <div style="${wmStyle}">${wmText}</div>
+      <div class="controls">
+        <button id="pp">▶</button>
+        <div class="progress" id="pg"><div class="bar" id="pb"></div></div>
+        <span id="tm">0:00 / ${m.duration||'10:00'}</span>
+        <select id="spd" style="background:rgba(255,255,255,.2);color:#fff;border:0;border-radius:4px;padding:4px 6px">
+          <option value="0.5">0.5x</option><option value="1" selected>1x</option><option value="1.5">1.5x</option><option value="2">2x</option>
+        </select>
+        <button id="fs">⛶</button>
+      </div>
+    </div>
+    <div class="muted text-sm mt-1">🔒 Video hanya untuk ditonton. Download & screen-capture tidak diizinkan.</div>
+    <p class="mt-2" style="${noSel}">${esc(m.content||'')}</p>`;
   } else if(m.type==='pdf'){
     // Reading-view PDF: render via Google Drive preview iframe when fileId/url is available, otherwise placeholder
     const driveId = m.fileId || (m.url && (m.url.match(/\/d\/([^/]+)/)?.[1] || m.url.match(/[?&]id=([^&]+)/)?.[1])) || '';
@@ -3785,7 +3556,7 @@ window.openModule = (cid,mid)=>{
   // Tear down guard when modal closes
   const mo = new MutationObserver(()=>{ if(!document.querySelector('.modal-backdrop')){ _viewerGuard(false); mo.disconnect(); } });
   mo.observe(document.body,{childList:true,subtree:false});
-  // Video sekarang pakai iframe/HTML5 — tidak perlu setupVideo() simulator
+  if(m.type==='video') setupVideo();
 };
 
 function setupVideo(){
@@ -3841,28 +3612,14 @@ window.finishCourse = (cid)=>{
 window.downloadPdf = ()=> toast('🔒 Download dinonaktifkan — konten hanya untuk dibaca','warn');
 
 function renderQuiz(cid,m){
-  // Normalisasi data quiz supaya kompatibel dengan dua bentuk:
-  //   - {q, opts, a}            (dibuat oleh UI admin frontend)
-  //   - {q, options, answer}    (seed backend / import lain)
-  const normM = {
-    id: m.id,
-    questions: (m.questions||[]).map(qq => ({
-      q: qq.q || qq.question || '',
-      opts: Array.isArray(qq.opts) ? qq.opts : (Array.isArray(qq.options) ? qq.options : []),
-      a: (qq.a != null) ? Number(qq.a) : (qq.answer != null ? Number(qq.answer) : 0)
-    }))
-  };
-  // Escape </script> agar tidak memutus inline script & cegah HTML injection
-  const safeJson = JSON.stringify(normM).replace(/<\/script/gi,'<\\/script').replace(/<!--/g,'<\\!--');
   return `<div id="qz" data-i="0" data-score="0">
     <div id="qzTimer" style="font-size:18px;font-weight:700;color:var(--danger);margin-bottom:10px">⏱ <span id="tmr">10:00</span></div>
     <div id="qzBody"></div>
   </div>
   <script>(()=>{
-    const m = ${safeJson};
+    const m = ${JSON.stringify(m)};
     let i=0, score=0, time=600, intv;
     const body=document.getElementById('qzBody'), tmr=document.getElementById('tmr');
-    const escH = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     function draw(){
       if(i>=m.questions.length){
         clearInterval(intv);
@@ -3870,7 +3627,7 @@ function renderQuiz(cid,m){
         return;
       }
       const q=m.questions[i];
-      body.innerHTML='<div class="card"><b>'+(i+1)+'. '+escH(q.q)+'</b><div class="mt-2">'+q.opts.map((o,j)=>'<button class="btn ghost full mt-1" data-j="'+j+'" style="text-align:left;justify-content:flex-start">'+(j+1)+'. '+escH(o)+'</button>').join('')+'</div></div>';
+      body.innerHTML='<div class="card"><b>'+(i+1)+'. '+q.q+'</b><div class="mt-2">'+q.opts.map((o,j)=>'<button class="btn ghost full mt-1" data-j="'+j+'" style="text-align:left;justify-content:flex-start">'+(j+1)+'. '+o+'</button>').join('')+'</div></div>';
       body.querySelectorAll('[data-j]').forEach(b=>b.onclick=()=>{
         if(+b.dataset.j===q.a){score++;b.style.background='rgba(16,185,129,.2)';}else{b.style.background='rgba(239,68,68,.2)';}
         setTimeout(()=>{i++;draw();},600);
@@ -3891,7 +3648,7 @@ PAGES.calendar = el => {
   for(let i=0;i<first;i++) cells.push('<div></div>');
   for(let d=1;d<=days;d++){
     const ds = new Date(y,m,d).setHours(0,0,0,0);
-    const has = events.some(e=>{const ed=new Date(e.date||e.start).setHours(0,0,0,0);return ed===ds;});
+    const has = events.some(e=>{const ed=new Date(e.date).setHours(0,0,0,0);return ed===ds;});
     const today = ds===new Date().setHours(0,0,0,0);
     cells.push(`<div class="day ${has?'has':''} ${today?'today':''}">${d}</div>`);
   }
@@ -3904,7 +3661,7 @@ PAGES.calendar = el => {
       </div>
     </div>
     <div class="card mt-3"><b class="text-lg mb-2" style="display:block">📌 Jadwal & Deadline Mendatang</b>
-      ${events.map(e=>{const c=courses.find(x=>x.id===e.courseId);const dt=e.date||e.start;return `<div class="list-row"><div class="av">📅</div><div class="flex-1"><b>${esc(e.title)}</b><div class="muted text-sm">${fmtDateTime(dt)} · ${esc(c?.title||'')}</div></div></div>`;}).join('')||'<div class="empty">Tidak ada jadwal</div>'}
+      ${events.map(e=>{const c=courses.find(x=>x.id===e.courseId);return `<div class="list-row"><div class="av">📅</div><div class="flex-1"><b>${esc(e.title)}</b><div class="muted text-sm">${fmtDateTime(e.date)} · ${esc(c?.title||'')}</div></div></div>`;}).join('')||'<div class="empty">Tidak ada jadwal</div>'}
     </div>
   `;
 };
@@ -3914,11 +3671,11 @@ PAGES.forum = el => {
   const courses = DB.get('courses',[]);
   el.innerHTML = `
     <div class="page-head"><div><h2>Forum Diskusi</h2><p>${threads.length} thread</p></div><button class="btn primary" id="nt">+ Buat Thread</button></div>
-    ${threads.map(t=>{const c=courses.find(x=>x.id===t.courseId);const body=t.body||t.content||'';const reps=Array.isArray(t.replies)?t.replies:[];return `
+    ${threads.map(t=>{const c=courses.find(x=>x.id===t.courseId);return `
       <div class="thread" data-id="${t.id}">
         <div class="flex justify-between"><b>${esc(t.title)}</b><span class="badge primary">${esc(c?.title||'')}</span></div>
-        <p class="mt-1 muted text-sm">${esc(body)}</p>
-        <div class="flex gap-2 mt-2 text-sm muted">👤 ${esc(t.userName||'')} · 💬 ${reps.length} · ❤ ${t.likes||0} · ${fmtDate(t.createdAt)}</div>
+        <p class="mt-1 muted text-sm">${esc(t.body)}</p>
+        <div class="flex gap-2 mt-2 text-sm muted">👤 ${esc(t.userName)} · 💬 ${t.replies.length} · ❤ ${t.likes} · ${fmtDate(t.createdAt)}</div>
       </div>`;}).join('')||'<div class="empty">Belum ada diskusi</div>'}
   `;
   el.querySelector('#nt').onclick=()=>{
@@ -3940,16 +3697,13 @@ PAGES.forum = el => {
 };
 function openThread(id){
   const t = DB.get('threads',[]).find(x=>x.id===id);
-  if (!t) return;
-  const body = t.body || t.content || '';
-  const reps = Array.isArray(t.replies) ? t.replies : [];
   modal({title:t.title, size:'lg',
-    body:`<p>${esc(body)}</p>
-      <div class="muted text-sm mt-1">${esc(t.userName||'')} · ${fmtDate(t.createdAt)}</div>
-      <div class="flex gap-2 mt-2"><button class="btn sm soft" onclick="likeThread('${id}')">❤ ${t.likes||0}</button></div>
+    body:`<p>${esc(t.body)}</p>
+      <div class="muted text-sm mt-1">${esc(t.userName)} · ${fmtDate(t.createdAt)}</div>
+      <div class="flex gap-2 mt-2"><button class="btn sm soft" onclick="likeThread('${id}')">❤ ${t.likes}</button></div>
       <hr style="margin:16px 0;border:0;border-top:1px solid var(--border)"/>
-      <b>Balasan (${reps.length})</b>
-      ${reps.map(r=>`<div class="card mt-1"><b>${esc(r.userName||'')}</b><p class="mt-1">${esc(r.body||r.content||'')}</p><button class="btn sm soft mt-1">❤ ${r.likes||0}</button></div>`).join('')}
+      <b>Balasan (${t.replies.length})</b>
+      ${t.replies.map(r=>`<div class="card mt-1"><b>${esc(r.userName)}</b><p class="mt-1">${esc(r.body)}</p><button class="btn sm soft mt-1">❤ ${r.likes||0}</button></div>`).join('')}
       <div class="field mt-2"><label>Balasan Anda</label><textarea class="textarea" id="rep"></textarea></div>
       <button class="btn primary" onclick="replyThread('${id}')">Kirim Balasan</button>
     `,
@@ -3988,26 +3742,19 @@ PAGES.mycerts = el => {
 PAGES.mytrx = el => {
   const trx = DB.get('transactions',[]).filter(t=>t.userId===state.user.id).sort((a,b)=>b.createdAt-a.createdAt);
   el.innerHTML = `
-    <div class="page-head"><div><h2>Transaksi Saya</h2><p>${trx.length} transaksi</p></div><button class="btn ghost sm" id="refTrx">↻ Refresh</button></div>
+    <div class="page-head"><div><h2>Transaksi Saya</h2><p>${trx.length} transaksi</p></div></div>
     <div class="table-wrap"><table class="table">
       <thead><tr><th>ID</th><th>Kursus</th><th>Jumlah</th><th>Status</th><th>Tanggal</th><th></th></tr></thead>
-      <tbody>${trx.length?trx.map(t=>{
-        const title = t.courseTitle || (Array.isArray(t.courseTitles)? t.courseTitles.join(', ') : '-');
-        const amt = t.amount!=null? t.amount : (t.total!=null? t.total : 0);
-        return `<tr><td><code style="font-size:11px">${t.id}</code></td><td>${esc(title)}</td><td><b>${fmtRp(amt)}</b></td><td><span class="badge ${t.status==='success'?'success':t.status==='pending'?'warn':'danger'}">${t.status}</span></td><td>${fmtDate(t.createdAt)}</td><td><button class="btn sm ghost" onclick="downloadInvoice('${t.id}')">Invoice</button></td></tr>`;
-      }).join(''):'<tr><td colspan="6"><div class="empty">Belum ada transaksi</div></td></tr>'}</tbody>
+      <tbody>${trx.length?trx.map(t=>`<tr><td><code style="font-size:11px">${t.id}</code></td><td>${esc(t.courseTitle)}</td><td><b>${fmtRp(t.amount)}</b></td><td><span class="badge ${t.status==='success'?'success':t.status==='pending'?'warn':'danger'}">${t.status}</span></td><td>${fmtDate(t.createdAt)}</td><td><button class="btn sm ghost" onclick="downloadInvoice('${t.id}')">Invoice</button></td></tr>`).join(''):'<tr><td colspan="6"><div class="empty">Belum ada transaksi</div></td></tr>'}</tbody>
     </table></div>
   `;
-  const rb=el.querySelector('#refTrx'); if(rb) rb.onclick=async()=>{ await pullFromBackend(true); PAGES.mytrx(el); };
 };
 window.downloadInvoice = (tid)=>{
-  const t = DB.get('transactions',[]).find(x=>x.id===tid); if(!t) return;
-  const title = t.courseTitle || (Array.isArray(t.courseTitles)? t.courseTitles.join(', ') : '-');
-  const amt = t.amount!=null? t.amount : (t.total!=null? t.total : 0);
+  const t = DB.get('transactions',[]).find(x=>x.id===tid);
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${t.id}</title><style>body{font-family:Arial;padding:40px;max-width:700px;margin:auto}h1{color:#6366f1}.box{border:1px solid #e5e7eb;padding:20px;margin-top:20px;border-radius:10px}.row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eee}.total{font-size:20px;font-weight:bold;color:#6366f1}</style></head><body>
     <h1>INVOICE</h1><p><b>${t.id}</b> · ${fmtDate(t.createdAt)}</p>
-    <div class="box"><b>Pelanggan:</b> ${esc(t.userName||'')}<br><b>Status:</b> ${t.status}<br><b>Metode:</b> ${t.gateway||''}</div>
-    <div class="box"><div class="row"><span>${esc(title)}</span><span>${fmtRp(amt)}</span></div><div class="row total"><span>TOTAL</span><span>${fmtRp(amt)}</span></div></div>
+    <div class="box"><b>Pelanggan:</b> ${esc(t.userName)}<br><b>Status:</b> ${t.status}<br><b>Metode:</b> ${t.gateway}</div>
+    <div class="box"><div class="row"><span>${esc(t.courseTitle)}</span><span>${fmtRp(t.amount)}</span></div><div class="row total"><span>TOTAL</span><span>${fmtRp(t.amount)}</span></div></div>
     <p style="margin-top:30px;text-align:center;color:#666">Terima kasih atas pembelian Anda!</p><script>window.print()<\/script></body></html>`;
   const blob = new Blob([html],{type:'text/html'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='Invoice-'+t.id+'.html'; a.click();
@@ -4047,33 +3794,23 @@ PAGES.cart = el => {
         </div>
       </div>`:'<div class="empty"><div style="font-size:60px">🛒</div>Keranjang kosong<br><button class="btn primary mt-2" data-route="catalog">Cari Kursus</button></div>'}
     `;
-    el.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{delete state.cart[b.dataset.rm];DB.set('cart',state.cart); try{_persistCart();}catch(e){} draw();render();});
+    el.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{delete state.cart[b.dataset.rm];DB.set('cart',state.cart);draw();render();});
     el.querySelectorAll('[data-route]').forEach(b=>b.onclick=()=>{state.route=b.dataset.route;render();});
     if(items.length){
       $('#apc').onclick=()=>{
         const code=$('#cc').value.trim().toUpperCase(); couponCode=code;
-        const cp = DB.get('coupons',[]).find(c=>{
-          if(String(c.code||'').toUpperCase()!==code) return false;
-          const active = (c.status ? String(c.status).toLowerCase()==='active' : (c.active!==false));
-          if(!active) return false;
-          const exp = Number(c.expiredAt || c.expiry || 0);
-          if(exp && exp < Date.now()) return false;
-          const maxUse = Number(c.maxUse||0), used = Number(c.used||0);
-          if(maxUse && used >= maxUse) return false;
-          return true;
-        });
-        if(!cp){toast('Kupon tidak valid / kedaluwarsa / kuota habis','danger');coupon=null;}
+        const cp = DB.get('coupons',[]).find(c=>c.code===code&&c.active&&c.expiry>Date.now());
+        if(!cp){toast('Kupon tidak valid','danger');coupon=null;}
         else {coupon=cp;toast('Kupon diterapkan','success');}
         draw();
       };
-      $('#co').onclick=()=>checkout(items, tot, couponCode);
+      $('#co').onclick=()=>checkout(items,tot);
     }
   };
   draw();
 };
 
-function checkout(items, total, couponCode){
-  couponCode = String(couponCode||'').trim().toUpperCase();
+function checkout(items, total){
   const s = getPaySettings();
   const active = PAYMENT_GATEWAYS.filter(g=>s.gateways?.[g.id]?.enabled);
   const methods = [
@@ -4097,7 +3834,7 @@ function checkout(items, total, couponCode){
       <div class="field"><label>Nomor HP</label><input class="input" name="phone" required pattern="[0-9+\\-\\s]{8,}"/></div>
       <div class="field"><label>Metode Pembayaran</label>
         <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px">
-          ${methods.map((g,i)=>`<label class="card pay-opt ${i===0?'selected':''}" data-pay="${esc(g.id)}" style="text-align:center;cursor:pointer;padding:14px;position:relative">
+          ${methods.map((g,i)=>`<label class="card hover" style="text-align:center;cursor:pointer;padding:14px;position:relative">
             <input type="radio" name="gw" value="${g.id}" ${i===0?'checked':''} style="display:none"/>
             <div style="font-size:30px">${g.icon}</div>
             <b style="font-size:12px;display:block;margin-top:4px">${esc(g.name)}</b>
@@ -4110,16 +3847,6 @@ function checkout(items, total, couponCode){
     </form>`,
     foot:`<button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn primary" id="payBtn">Bayar Sekarang</button>`
   });
-
-  // Highlight metode pembayaran yang dipilih dengan background berbeda
-  $$('.pay-opt').forEach(el=>{
-    el.onclick = ()=>{
-      $$('.pay-opt').forEach(x=>x.classList.remove('selected'));
-      el.classList.add('selected');
-      const r = el.querySelector('input[type=radio]'); if(r){ r.checked = true; }
-    };
-  });
-
 
   $('#payBtn').onclick=async ()=>{
     const f=$('#cof');
@@ -4156,18 +3883,13 @@ function checkout(items, total, couponCode){
           </div>`;
       modal({title:`Pembayaran via ${esc(method.name)}`, size:'md', body,
         foot:`<button class="btn ghost" onclick="closeModal()">Tutup</button><button class="btn primary" id="confBtn">✓ Saya Sudah Bayar / Transfer</button>`});
-      $('#confBtn').onclick = async ()=>{
-        // Persist transaksi ke backend (sumber kebenaran)
-        let r = null;
-        try {
-          r = await apiFetch('checkout', {
-            userId: state.user.id, courseIds: items.map(c=>c.id), gateway: gw,
-            couponCode: couponCode
-          });
-        } catch(e){ toast('Gagal menyimpan transaksi: '+(e.message||e),'danger'); return; }
-        if (!r || !r.ok){ toast('Gagal: '+(r&&r.msg||'unknown'),'danger'); return; }
-        await pullFromBackend(true);
-        state.cart={}; DB.set('cart',{}); try{_persistCart();}catch(e){}
+      $('#confBtn').onclick = ()=>{
+        const trx = DB.get('transactions',[]);
+        items.forEach(c=>{
+          trx.unshift({id:'TRX'+Date.now()+Math.floor(Math.random()*1000),userId:state.user.id,userName:state.user.name,courseId:c.id,courseTitle:c.title,amount:c.price,gateway:gw,status:'pending',createdAt:Date.now()});
+        });
+        DB.set('transactions',trx); apiSync('syncPush',{transactions:trx});
+        state.cart={}; DB.set('cart',{});
         closeModal();
         toast('Konfirmasi pembayaran dikirim. Menunggu verifikasi admin.','success');
         state.route='mytrx'; render();
@@ -4177,24 +3899,27 @@ function checkout(items, total, couponCode){
 
     // Flow AUTO gateway
     modal({title:'Memproses Pembayaran...',body:`<div class="center" style="padding:30px"><div style="font-size:50px;animation:spin 1s infinite linear">⏳</div><b>Menghubungkan ke ${esc(method.name)}</b><style>@keyframes spin{to{transform:rotate(360deg)}}</style></div>`,foot:''});
-    let serverTotal = total, trxId = null;
+    let serverTotal = total;
     if (API_ENABLED()){
       const r = await apiFetch('checkout',{
         userId: state.user.id, courseIds: items.map(c=>c.id), gateway: gw,
-        couponCode: couponCode
+        couponCode: (typeof couponCode!=='undefined'?couponCode:'') || ''
       });
-      if (r && r.ok){ serverTotal = r.total; trxId = r.trxId; }
-      else { closeModal(); toast('Checkout gagal: '+((r&&r.msg)||'unknown'),'danger'); return; }
+      if (r && r.ok) serverTotal = r.total;
     }
-    // Auto-confirm utk gateway (asumsi callback sukses dari payment provider)
-    try { if (trxId) await apiFetch('confirmPayment', { id: trxId }); } catch(_){}
-    await pullFromBackend(true);
     setTimeout(()=>{
       closeModal();
-      state.cart={}; DB.set('cart',{}); try{_persistCart();}catch(e){}
+      const us=DB.get('users',[]); const ix=us.findIndex(x=>x.id===state.user.id);
+      const trx = DB.get('transactions',[]);
+      items.forEach(c=>{
+        if(!us[ix].enrolled.some(e=>e.courseId===c.id)) us[ix].enrolled.push({courseId:c.id,progress:0,completedModules:[]});
+        trx.unshift({id:'TRX'+Date.now()+Math.floor(Math.random()*1000),userId:us[ix].id,userName:us[ix].name,courseId:c.id,courseTitle:c.title,amount:c.price,gateway:gw,status:'success',createdAt:Date.now()});
+      });
+      DB.set('users',us); DB.set('transactions',trx); state.user=us[ix];
+      state.cart={}; DB.set('cart',{});
       toast(`Pembayaran berhasil! Total ${fmtRp(serverTotal)} 🎉`,'success');
       state.route='mycourses'; render();
-    },800);
+    },1500);
   };
 }
 
@@ -4314,9 +4039,7 @@ function _instructorStudents(){
 PAGES.iDashboard = el => {
   const cs = _instructorCourses();
   const sts = _instructorStudents();
-  const cidSet = new Set(cs.map(c=>c.id));
-  const _matches = t => (t.courseId && cidSet.has(t.courseId)) || (Array.isArray(t.courseIds) && t.courseIds.some(id=>cidSet.has(id)));
-  const totalRev = DB.get('transactions',[]).filter(t=>t.status==='success' && _matches(t)).reduce((a,b)=>a+(b.amount!=null?b.amount:(b.total!=null?b.total:0)),0);
+  const totalRev = DB.get('transactions',[]).filter(t=>t.status==='success' && cs.some(c=>c.id===t.courseId)).reduce((a,b)=>a+b.amount,0);
   const avgRating = cs.length? (cs.reduce((a,b)=>a+parseFloat(b.rating||0),0)/cs.length).toFixed(1):'0.0';
   el.innerHTML = `
     <div class="page-head"><div><h2>Halo, ${esc(state.user.name)} 👋</h2><p>${esc(state.user.expertise||'Instruktur')}</p></div></div>
@@ -4445,18 +4168,8 @@ PAGES.iForum = el => {
   });
 };
 
-// Boot — hidrasi data dari backend dulu bila ada sesi tersimpan,
-// supaya refresh tidak otomatis logout (users belum ada di _MEM).
-(async function boot(){
-  try {
-    const s = session.get();
-    if (s && s.userId && API_ENABLED()){
-      try { await pullFromBackend(true); } catch(_){}
-      try { startAutoSync(); } catch(_){}
-    }
-  } catch(_){}
-  render();
-})();
+// Boot
+render();
 </script>
 </body>
 </html>
