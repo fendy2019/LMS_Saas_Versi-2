@@ -338,7 +338,7 @@ const session = {
  *  di localStorage agar tidak bisa dibaca script pihak lain via XSS reflection).
  * ============================================================ */
 const GAS_URL    = "https://script.google.com/macros/s/AKfycbyod3hTLoZiTXa0CR9KNZpWpLI5DSaaowFW6EAPUiH43xS6ryLiySIJfiD2aHVkMn45/exec";    // <-- paste URL Web App GAS
-const CLIENT_HMAC= "CHANGE_ME_HMAC";                // <-- samakan dgn HMAC_SECRET di Script Properties
+const CLIENT_HMAC= "V9kX4mP7tR2wQ8zN5cL1hF6aD3sJ9eB7yU2gK8nM4vC1xT5qW9rL6pZ3dH7fS2aY8nE4jR1uI6oP9bV5cX2tM7wQ3kL8yF1";                // <-- samakan dgn HMAC_SECRET di Script Properties
 const API_ENABLED= () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
 
 // JWT token store — sessionStorage = auto-clear saat tab ditutup
