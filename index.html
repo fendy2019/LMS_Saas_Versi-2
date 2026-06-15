@@ -300,7 +300,25 @@ const DB = {
   load(){ try{ return JSON.parse(localStorage.getItem(this.k)||'{}'); }catch(e){ return {}; } },
   save(d){ localStorage.setItem(this.k, JSON.stringify(d)); },
   get(key, def){ const d=this.load(); return key in d? d[key] : def; },
-  set(key, val){ const d=this.load(); d[key]=val; this.save(d); },
+  set(key, val){ const d=this.load(); d[key]=val; this.save(d); DB._autoSync(key, val); },
+  // daftar key yang punya sheet di backend → otomatis di-syncPush (debounced)
+  _syncable: new Set([
+    'users','courses','categories','instructors','transactions','coupons',
+    'reviews','threads','calendar','notifications','affiliates','memberships',
+    'broadcasts','materials','certificates','certTemplate','paymentSettings',
+    'theme','settings','paymentTests','cart'
+  ]),
+  _pending: {}, _timer: null,
+  _autoSync(key, val){
+    if (!this._syncable.has(key)) return;
+    if (typeof apiSync !== 'function' || typeof API_ENABLED !== 'function' || !API_ENABLED()) return;
+    this._pending[key] = val;
+    clearTimeout(this._timer);
+    this._timer = setTimeout(()=>{
+      const payload = this._pending; this._pending = {};
+      try { apiSync('syncPush', payload); } catch(e){}
+    }, 400);
+  }
 };
 const session = {
   get(){ try{return JSON.parse(localStorage.getItem('eduflow_session')||'null');}catch(e){return null;} },
@@ -319,8 +337,8 @@ const session = {
  *  Login mengembalikan JWT — disimpan di sessionStorage (tidak persistent
  *  di localStorage agar tidak bisa dibaca script pihak lain via XSS reflection).
  * ============================================================ */
-const GAS_URL    = "https://script.google.com/macros/s/AKfycbz1p0qVZOsPLOkTpzGdgz0xzG0NRcmbsu3R3X4L9-7svhMVqnEzspR6-5z5YkHx-UbIPQ/exec";    // <-- paste URL Web App GAS
-const CLIENT_HMAC= "8f7c2d91b5e4a8f36c7e2b1d9a4f5c8e7d3b6a9c2f1e8d4b7c5a9e2f6d8b1c4";                // <-- samakan dgn HMAC_SECRET di Script Properties
+const GAS_URL    = "https://script.google.com/macros/s/AKfycbyod3hTLoZiTXa0CR9KNZpWpLI5DSaaowFW6EAPUiH43xS6ryLiySIJfiD2aHVkMn45/exec";    // <-- paste URL Web App GAS
+const CLIENT_HMAC= "V9kX4mP7tR2wQ8zN5cL1hF6aD3sJ9eB7yU2gK8nM4vC1xT5qW9rL6pZ3dH7fS2aY8nE4jR1uI6oP9bV5cX2tM7wQ3kL8yF1";                // <-- samakan dgn HMAC_SECRET di Script Properties
 const API_ENABLED= () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
 
 // JWT token store — sessionStorage = auto-clear saat tab ditutup
@@ -427,15 +445,16 @@ async function deleteFromDrive(fileId){
 async function pullFromBackend(){
   const r = await apiFetch('syncPull', {}, {retries:1});
   if (r && r.ok && r.data){
-    const map = {
-      users:'users', courses:'courses', categories:'categories', instructors:'instructors',
-      transactions:'transactions', coupons:'coupons', reviews:'reviews', threads:'threads',
-      calendar:'calendar', notifications:'notifications', affiliates:'affiliates',
-      memberships:'memberships', broadcasts:'broadcasts', materials:'materials'
-    };
-    Object.entries(map).forEach(([k,sk])=>{
-      if (Array.isArray(r.data[k]) && r.data[k].length) DB.set(sk, r.data[k]);
-    });
+    // Array collections
+    const arrKeys = ['users','courses','categories','instructors','transactions','coupons',
+      'reviews','threads','calendar','notifications','affiliates','memberships',
+      'broadcasts','materials','certificates','paymentTests','cart'];
+    // Singleton (object) collections
+    const objKeys = ['certTemplate','paymentSettings','theme','settings'];
+    // Hindari trigger autoSync saat pull (write langsung ke localStorage).
+    const writeLocal = (k,v)=>{ const d=DB.load(); d[k]=v; DB.save(d); };
+    arrKeys.forEach(k=>{ if (Array.isArray(r.data[k]) && r.data[k].length) writeLocal(k, r.data[k]); });
+    objKeys.forEach(k=>{ if (r.data[k] && typeof r.data[k]==='object') writeLocal(k, r.data[k]); });
     toast('Data tersinkron dari server','success');
   }
 }
@@ -447,7 +466,11 @@ async function pushToBackend(){
     coupons:DB.get('coupons',[]), reviews:DB.get('reviews',[]), threads:DB.get('threads',[]),
     calendar:DB.get('calendar',[]), notifications:DB.get('notifications',[]),
     affiliates:DB.get('affiliates',[]), memberships:DB.get('memberships',[]),
-    broadcasts:DB.get('broadcasts',[]), materials:DB.get('materials',[])
+    broadcasts:DB.get('broadcasts',[]), materials:DB.get('materials',[]),
+    certificates:DB.get('certificates',[]), paymentTests:DB.get('paymentTests',[]),
+    cart:DB.get('cart',{}),
+    certTemplate:DB.get('certTemplate',null), paymentSettings:DB.get('paymentSettings',null),
+    theme:DB.get('theme',null), settings:DB.get('settings',null)
   };
   return apiFetch('syncPush', payload);
 }
