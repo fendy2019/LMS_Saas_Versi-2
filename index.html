@@ -310,16 +310,34 @@ const session = {
 
 /* ============================================================
  * BACKEND API LAYER — Google Apps Script (Code.gs)
- * Ganti GAS_URL dengan URL Web App deploy GAS Anda.
- * apiFetch(action,payload) = async wrapper + retry exponential backoff (max 3x)
  * ============================================================ */
-const GAS_URL = "https://script.google.com/macros/s/AKfycby7Pujwt6nqNcAxVov0NYw19pfDElGePRqgx5jx4b-2ylDRXzHqYyxxJIZoXvEUI3Qa/exec"; // <-- paste URL Web App GAS di sini
-const API_ENABLED = () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
+const getBackendConfig = () => DB.get('settings')?.backend || {url:'', secret:''};
+const API_ENABLED = () => {
+  const cfg = getBackendConfig();
+  return cfg.url && cfg.url.startsWith('https://script.google.com/') && cfg.secret.length > 5;
+};
+
+async function generateSignature(payloadStr) {
+  const secret = getBackendConfig().secret || 'default_secret';
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey('raw', enc.encode(secret), {name: 'HMAC', hash: 'SHA-256'}, false, ['sign']);
+  const signature = await crypto.subtle.sign('HMAC', key, enc.encode(payloadStr));
+  return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
 async function apiFetch(action, payload = {}, opts = {}){
-  if (!API_ENABLED()) return { ok:false, offline:true, msg:'Backend offline (GAS_URL belum diset)' };
+  if (!API_ENABLED()) return { ok:false, offline:true, msg:'Backend belum dikonfigurasi di Pengaturan' };
   const max = opts.retries ?? 3;
   let delay = 600, lastErr = null;
+  const GAS_URL = getBackendConfig().url;
+
+  const s = session.get();
+  if (s && s.token) payload._token = s.token;
+
+  const bodyStr = JSON.stringify({ action, data: payload, timestamp: Date.now() });
+  const signature = await generateSignature(bodyStr);
+  const finalBody = JSON.stringify({ payload: bodyStr, signature: signature });
+
   for (let i=0; i<max; i++){
     try {
       const ctrl = new AbortController();
@@ -328,7 +346,7 @@ async function apiFetch(action, payload = {}, opts = {}){
         method:'POST',
         // text/plain agar tidak memicu CORS preflight ke GAS
         headers:{'Content-Type':'text/plain;charset=utf-8'},
-        body: JSON.stringify({ action, data: payload }),
+        body: finalBody,
         redirect:'follow',
         signal: ctrl.signal
       });
@@ -653,6 +671,7 @@ function seed(){
     payment:{midtransKey:'SB-Mid-server-XXXXXXX',xenditKey:'xnd_demo_key',stripeKey:'pk_test_demo',paypalKey:'demo_paypal'},
     smtp:{host:'smtp.gmail.com',port:587,user:'noreply@lms.com'},
     security:{sessionTimeout:60,minPwLen:8},
+    backend:{url:'', secret:''},
   };
 
   const calendar=[
@@ -742,7 +761,7 @@ async function login(email, password, remember){
       const us = DB.get('users',[]); const ix = us.findIndex(x=>x.id===r.user.id);
       if (ix>=0) us[ix] = {...us[ix], ...r.user, serverAuth:true}; else us.push({...r.user, serverAuth:true});
       DB.set('users',us);
-      session.set({userId:r.user.id, loginAt:Date.now(), remember:!!remember});
+      session.set({userId:r.user.id, loginAt:Date.now(), remember:!!remember, token: r.token});
       state.user = us.find(x=>x.id===r.user.id);
       return {ok:true};
     }
@@ -751,15 +770,23 @@ async function login(email, password, remember){
   return {ok:false,msg:'Email atau password salah'};
 }
 function logout(){ session.clear(); state.user=null; if($('#backdrop')) $('#backdrop').classList.remove('open'); render(); }
-function register(data){
+async function register(data){
+  if (API_ENABLED()) {
+    const r = await apiFetch('register', {name:data.name, email:data.email, password:data.password});
+    if (!r.ok) return {ok:false, msg: r.msg};
+    const users = DB.get('users',[]);
+    users.push({...r.user, serverAuth:true});
+    DB.set('users', users);
+    return {ok:true, user:r.user};
+  }
+
+  // Offline fallback
   const users = DB.get('users',[]);
   if(users.some(u=>u.email.toLowerCase()===data.email.toLowerCase())) return {ok:false,msg:'Email sudah terdaftar'};
   const minLen = DB.get('settings').security?.minPwLen||8;
   if(data.password.length < minLen) return {ok:false,msg:`Password minimal ${minLen} karakter`};
   const nu = {id:uid('u'),name:data.name,email:data.email,password:data.password,role:'student',joinedAt:Date.now(),status:'active',enrolled:[],wishlist:[]};
   users.push(nu); DB.set('users',users);
-  // simpan juga ke backend (server akan hash password & cek duplikasi)
-  apiSync('register',{name:data.name,email:data.email,password:data.password});
   return {ok:true,user:nu};
 }
 
@@ -904,7 +931,7 @@ function bindAuth(mode){
       render();
     };
   } else if(mode==='register'){
-    $('#regForm').onsubmit = e=>{
+    $('#regForm').onsubmit = async e=>{
       e.preventDefault();
       const f = e.target;
       let ok=true;
@@ -914,7 +941,9 @@ function bindAuth(mode){
       showErr('password', f.password.value.length<8?'Minimal 8 karakter':'');
       showErr('tos', !f.tos.checked?'Wajib disetujui':'');
       if(!ok) return;
-      const r = register({name:f.name.value.trim(),email:f.email.value.trim(),password:f.password.value});
+      const btn=f.querySelector('button'); if(btn){btn.disabled=true;btn.textContent='Memproses...';}
+      const r = await register({name:f.name.value.trim(),email:f.email.value.trim(),password:f.password.value});
+      if(btn){btn.disabled=false;btn.textContent='Daftar Sekarang';}
       if(!r.ok){ toast(r.msg,'danger'); return; }
       toast('Pendaftaran berhasil! Silakan masuk.','success');
       renderAuth('login');
@@ -3223,12 +3252,33 @@ PAGES.reports = el => {
 /* ---- Settings ---- */
 PAGES.settings = el => {
   const s = DB.get('settings');
-  let tab = 'general';
+  if(!s.backend) s.backend = {url:'', secret:''};
+  let tab = 'backend';
   const draw=()=>{
     el.innerHTML = `
       <div class="page-head"><div><h2>Pengaturan</h2><p>Konfigurasi platform</p></div></div>
-      <div class="tabs">${['general','seo','payment','smtp','security'].map(t=>`<button data-t="${t}" class="${tab===t?'active':''}">${t.toUpperCase()}</button>`).join('')}</div>
+      <div class="tabs">${['backend','general','seo','payment','smtp','security'].map(t=>`<button data-t="${t}" class="${tab===t?'active':''}">${t.toUpperCase()}</button>`).join('')}</div>
       <div class="card">${({
+        backend:`<form id="gf">
+          <div class="card mb-3" style="background:var(--primary-soft);border:1px solid var(--primary);color:var(--text)">
+            <b class="text-lg">Konfigurasi Server (Google Apps Script)</b>
+            <p class="text-sm mt-1">Sambungkan LMS Anda dengan Google Sheets dan Google Drive untuk fungsi backend terpusat. Masukkan Web App URL dari GAS Anda.</p>
+          </div>
+          <div class="field"><label>Google Apps Script Web App URL</label>
+            <input class="input" type="url" name="url" placeholder="https://script.google.com/macros/s/.../exec" value="${esc(s.backend.url)}"/>
+          </div>
+          <div class="field"><label>HMAC Secret (Kata Sandi Enkripsi)</label>
+            <div class="pw-wrap"><input class="input" type="password" name="secret" placeholder="Misal: KODE_RAHASIA_SAYA" value="${esc(s.backend.secret)}"><button type="button" onclick="togglePw(this)">👁</button></div>
+            <p class="muted text-sm mt-1">Samakan dengan HMAC_SECRET yang Anda masukkan di Script Properties GAS.</p>
+          </div>
+          <button class="btn primary mt-2">💾 Simpan Konfigurasi Backend</button>
+          <hr style="margin:20px 0;border-top:1px solid var(--border)">
+          <b class="text-lg">Tindakan Sinkronisasi</b>
+          <div class="flex gap-2 mt-2 wrap">
+            <button type="button" class="btn" onclick="toast('Menarik data...','info'); pullFromBackend(false)">⬇️ Tarik Data (Pull) dari Spreadsheet</button>
+            <button type="button" class="btn" onclick="toast('Mengunggah data...','info'); pushToBackend().then(r=>{if(r&&r.ok){toast('Data berhasil diunggah (Push) ke Server','success');}else{toast('Gagal: Pastikan URL & Secret benar','danger')}})">⬆️ Unggah Semua Data Lokal (Push) ke Server</button>
+          </div>
+        </form>`,
         general:`<form id="gf">
           <div class="field"><label>Nama LMS</label><input class="input" name="name" value="${esc(s.general.name)}"/></div>
           <div class="field"><label>Tagline</label><input class="input" name="tagline" value="${esc(s.general.tagline)}"/></div>
