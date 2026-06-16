@@ -5,8 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#6366f1" />
 <meta name="description" content="EduFlow LMS - Platform Kursus Online SaaS Modern" />
-<meta name="referrer" content="strict-origin-when-cross-origin" />
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob: https://script.google.com https://*.googleusercontent.com https://drive.google.com; img-src 'self' data: blob: https://*.googleusercontent.com https://drive.google.com; media-src 'self' data: blob: https://*.googleusercontent.com https://drive.google.com; connect-src 'self' https://script.google.com https://script.googleusercontent.com; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-src https://drive.google.com https://www.youtube.com https://player.vimeo.com; object-src 'none'; base-uri 'self'" />
 <title>EduFlow LMS - Platform Kursus Online</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%236366f1'/%3E%3Cpath d='M16 24l16-8 16 8-16 8z' fill='white'/%3E%3Cpath d='M22 30v8c0 3 4 6 10 6s10-3 10-6v-8' stroke='white' stroke-width='2.5' fill='none'/%3E%3C/svg%3E" />
 <link rel="manifest" href='data:application/manifest+json,{"name":"EduFlow LMS","short_name":"EduFlow","start_url":".","display":"standalone","background_color":"%230f172a","theme_color":"%236366f1","icons":[{"src":"data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 512 512%27%3E%3Crect width=%27512%27 height=%27512%27 rx=%27110%27 fill=%27%236366f1%27/%3E%3Cpath d=%27M128 192l128-64 128 64-128 64z%27 fill=%27white%27/%3E%3Cpath d=%27M176 240v64c0 24 32 48 80 48s80-24 80-48v-64%27 stroke=%27white%27 stroke-width=%2720%27 fill=%27none%27/%3E%3C/svg%3E","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}' />
@@ -279,6 +277,8 @@ canvas.chart{width:100%;max-height:280px}
 .search-pop a{display:block;padding:10px 14px;border-bottom:1px solid var(--border);cursor:pointer;font-size:13px}
 .search-pop a:hover{background:var(--surface-2)}
 .search-rel{position:relative}
+.pm-opt{transition:all .15s}
+.pm-selected{border-color:var(--primary)!important;background:var(--primary-soft)!important;box-shadow:0 0 0 2px var(--primary) inset}
 </style>
 </head>
 <body>
@@ -300,25 +300,7 @@ const DB = {
   load(){ try{ return JSON.parse(localStorage.getItem(this.k)||'{}'); }catch(e){ return {}; } },
   save(d){ localStorage.setItem(this.k, JSON.stringify(d)); },
   get(key, def){ const d=this.load(); return key in d? d[key] : def; },
-  set(key, val){ const d=this.load(); d[key]=val; this.save(d); DB._autoSync(key, val); },
-  // daftar key yang punya sheet di backend → otomatis di-syncPush (debounced)
-  _syncable: new Set([
-    'users','courses','categories','instructors','transactions','coupons',
-    'reviews','threads','calendar','notifications','affiliates','memberships',
-    'broadcasts','materials','certificates','certTemplate','paymentSettings',
-    'theme','settings','paymentTests','cart'
-  ]),
-  _pending: {}, _timer: null,
-  _autoSync(key, val){
-    if (!this._syncable.has(key)) return;
-    if (typeof apiSync !== 'function' || typeof API_ENABLED !== 'function' || !API_ENABLED()) return;
-    this._pending[key] = val;
-    clearTimeout(this._timer);
-    this._timer = setTimeout(()=>{
-      const payload = this._pending; this._pending = {};
-      try { apiSync('syncPush', payload); } catch(e){}
-    }, 400);
-  }
+  set(key, val){ const d=this.load(); d[key]=val; this.save(d); },
 };
 const session = {
   get(){ try{return JSON.parse(localStorage.getItem('eduflow_session')||'null');}catch(e){return null;} },
@@ -327,36 +309,12 @@ const session = {
 };
 
 /* ============================================================
- * BACKEND API LAYER — Google Apps Script (Code.gs)  [SECURE]
- *
- *  CONFIG: paste dari hasil Deploy → New Deployment → Web App
- *  - GAS_URL     : URL Web App
- *  - CLIENT_HMAC : sama dgn HMAC_SECRET di Script Properties (Code.gs)
- *
- *  Semua request ditandatangani HMAC-SHA256 (browser SubtleCrypto).
- *  Login mengembalikan JWT — disimpan di sessionStorage (tidak persistent
- *  di localStorage agar tidak bisa dibaca script pihak lain via XSS reflection).
+ * BACKEND API LAYER — Google Apps Script (Code.gs)
+ * Ganti GAS_URL dengan URL Web App deploy GAS Anda.
+ * apiFetch(action,payload) = async wrapper + retry exponential backoff (max 3x)
  * ============================================================ */
-const GAS_URL    = "https://script.google.com/macros/s/AKfycbyod3hTLoZiTXa0CR9KNZpWpLI5DSaaowFW6EAPUiH43xS6ryLiySIJfiD2aHVkMn45/exec";    // <-- paste URL Web App GAS
-const CLIENT_HMAC= "V9kX4mP7tR2wQ8zN5cL1hF6aD3sJ9eB7yU2gK8nM4vC1xT5qW9rL6pZ3dH7fS2aY8nE4jR1uI6oP9bV5cX2tM7wQ3kL8yF1";                // <-- samakan dgn HMAC_SECRET di Script Properties
-const API_ENABLED= () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
-
-// JWT token store — sessionStorage = auto-clear saat tab ditutup
-const tokenStore = {
-  get(){ try{ return sessionStorage.getItem('eduflow_jwt')||''; }catch(e){ return ''; } },
-  set(t){ try{ sessionStorage.setItem('eduflow_jwt', t||''); }catch(e){} },
-  clear(){ try{ sessionStorage.removeItem('eduflow_jwt'); }catch(e){} }
-};
-
-// HMAC-SHA256 (Web Crypto) → base64url
-async function _hmacSign(message){
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey('raw', enc.encode(CLIENT_HMAC),
-    {name:'HMAC', hash:'SHA-256'}, false, ['sign']);
-  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(message));
-  let bin=''; new Uint8Array(sig).forEach(b=>bin+=String.fromCharCode(b));
-  return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-}
+const GAS_URL = "https://script.google.com/macros/s/AKfycby7Pujwt6nqNcAxVov0NYw19pfDElGePRqgx5jx4b-2ylDRXzHqYyxxJIZoXvEUI3Qa/exec"; // <-- paste URL Web App GAS di sini
+const API_ENABLED = () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
 
 async function apiFetch(action, payload = {}, opts = {}){
   if (!API_ENABLED()) return { ok:false, offline:true, msg:'Backend offline (GAS_URL belum diset)' };
@@ -365,23 +323,18 @@ async function apiFetch(action, payload = {}, opts = {}){
   for (let i=0; i<max; i++){
     try {
       const ctrl = new AbortController();
-      const tid = setTimeout(()=>ctrl.abort(), opts.timeout || 30000);
-      const body = { action, data: payload, ts: Date.now(), token: tokenStore.get() };
-      // signed envelope: sig hanya melindungi {action,data,ts}
-      const toSign = JSON.stringify({action: body.action, data: body.data, ts: body.ts});
-      body.sig = await _hmacSign(toSign);
+      const tid = setTimeout(()=>ctrl.abort(), opts.timeout || 20000);
       const res = await fetch(GAS_URL, {
         method:'POST',
-        headers:{'Content-Type':'text/plain;charset=utf-8'}, // hindari preflight
-        body: JSON.stringify(body),
+        // text/plain agar tidak memicu CORS preflight ke GAS
+        headers:{'Content-Type':'text/plain;charset=utf-8'},
+        body: JSON.stringify({ action, data: payload }),
         redirect:'follow',
         signal: ctrl.signal
       });
       clearTimeout(tid);
       if (!res.ok) throw new Error('HTTP '+res.status);
       const json = await res.json();
-      // server boleh mengembalikan token baru (login/register)
-      if (json && json.token) tokenStore.set(json.token);
       return json;
     } catch(err){
       lastErr = err;
@@ -392,7 +345,7 @@ async function apiFetch(action, payload = {}, opts = {}){
   return { ok:false, offline:true, msg:'Tidak dapat terhubung ke server' };
 }
 
-// fire-and-forget
+// fire-and-forget: kirim ke backend tanpa block UI, log saja kalau gagal
 function apiSync(action, payload){
   if (!API_ENABLED()) return;
   apiFetch(action, payload, {retries:2}).catch(()=>{});
@@ -419,20 +372,39 @@ function fileToDataUrl(file){
   });
 }
 async function uploadToDrive(file, meta={}){
-  // SEMUA file wajib ke Drive ID. Fallback ke localStorage DIHAPUS demi keamanan & quota.
-  const type = file.type.startsWith('video')?'video':file.type.startsWith('audio')?'audio':file.type.startsWith('image')?'image':'pdf';
+  // returns { ok, data:{ fileId, url, viewUrl, size, mime, type, fallback? } }
+  const t = file.type||'';
+  const type = t.startsWith('video')?'video':t.startsWith('audio')?'audio':t.startsWith('image')?'image':
+               /pdf/.test(t)?'pdf':/presentation|powerpoint/.test(t)?'slide':/word|document/.test(t)?'doc':'file';
+  const prog = typeof meta.onProgress==='function'?meta.onProgress:()=>{};
   if (!API_ENABLED()){
-    return { ok:false, msg:'Backend (GAS_URL) belum dikonfigurasi. File hanya bisa diupload setelah backend aktif.' };
+    // fallback localStorage (hanya file kecil < 8MB saat backend belum diset)
+    if (file.size > 8*1024*1024) return { ok:false, msg:'GAS_URL belum diset & file >8MB tidak bisa disimpan lokal.' };
+    const dataUrl = await fileToDataUrl(file);
+    return { ok:true, data:{ fileId:'local_'+uid('f'), url:dataUrl, viewUrl:dataUrl, size:file.size, mime:file.type, type, fallback:true } };
   }
-  // tidak ada batas ukuran di sisi klien — server akan validasi MIME & quota
   try{
     const base64 = await fileToBase64(file);
-    const r = await apiFetch('uploadFile', {
-      filename: file.name, mime: file.type || 'application/octet-stream', base64, type,
-      title: meta.title || file.name, description: meta.description || ''
-    }, { timeout: 180000, retries: 1 });
-    if (r && r.ok && r.data){ r.data.type = r.data.type || type; r.data.mime = r.data.mime || file.type; return r; }
-    return { ok:false, msg: (r && r.msg) || 'Upload ke Drive gagal' };
+    const CH = 3*1024*1024; // ~3MB per potongan base64 (di bawah batas payload GAS)
+    if (base64.length <= CH){
+      const r = await apiFetch('uploadFile', { filename:file.name, mime:file.type, base64, type,
+        title: meta.title||file.name, description: meta.description||'' }, { timeout:120000, retries:2 });
+      if (r && r.ok && r.data){ r.data.type=r.data.type||type; r.data.mime=r.data.mime||file.type; return r; }
+      return { ok:false, msg: (r&&r.msg)||'Upload ke Drive gagal' };
+    }
+    // === Upload BERPOTONGAN (chunk) untuk file besar — tanpa batas ukuran ===
+    const uploadId = 'up_'+Date.now()+'_'+uid('c');
+    const total = Math.ceil(base64.length/CH);
+    for (let i=0;i<total;i++){
+      const chunk = base64.slice(i*CH,(i+1)*CH);
+      const cr = await apiFetch('uploadChunk', { uploadId, index:i, total, chunk }, { timeout:120000, retries:3 });
+      if (!cr || !cr.ok) return { ok:false, msg:'Gagal mengirim potongan '+(i+1)+'/'+total };
+      prog(Math.round((i+1)/total*100), i+1, total);
+    }
+    const fin = await apiFetch('finalizeUpload', { uploadId, filename:file.name, mime:file.type, type,
+      title: meta.title||file.name, description: meta.description||'' }, { timeout:180000, retries:2 });
+    if (fin && fin.ok && fin.data){ fin.data.type=fin.data.type||type; fin.data.mime=fin.data.mime||file.type; return fin; }
+    return { ok:false, msg:(fin&&fin.msg)||'Gagal menggabungkan file di Drive' };
   }catch(e){ return { ok:false, msg:String(e) }; }
 }
 async function deleteFromDrive(fileId){
@@ -442,21 +414,27 @@ async function deleteFromDrive(fileId){
 }
 
 // 2-way sync: tarik data dari sheet ke localStorage (panggil di startup setelah login)
-async function pullFromBackend(){
+function _applyPull(r){
+  if(!(r && r.ok && r.data)) return;
+  const map = {
+    users:'users', courses:'courses', categories:'categories', instructors:'instructors',
+    transactions:'transactions', coupons:'coupons', reviews:'reviews', threads:'threads',
+    calendar:'calendar', notifications:'notifications', affiliates:'affiliates',
+    memberships:'memberships', broadcasts:'broadcasts', materials:'materials', certificates:'certificates'
+  };
+  // Jika backend "live" (sudah ada user), percayai server penuh termasuk koleksi kosong (hapus manual tampil).
+  const live = Array.isArray(r.data.users) && r.data.users.length>0;
+  Object.entries(map).forEach(([k,sk])=>{
+    if (Array.isArray(r.data[k]) && (r.data[k].length || live)) DB.set(sk, r.data[k]);
+  });
+  ['settings','certTemplate','paymentSettings'].forEach(k=>{ if(r.data[k]) DB.set(k, r.data[k]); });
+  if(state.user){ const fresh=DB.get('users',[]).find(x=>x.id===state.user.id); if(fresh) state.user={...state.user,...fresh}; }
+}
+async function pullFromBackend(silent){
   const r = await apiFetch('syncPull', {}, {retries:1});
-  if (r && r.ok && r.data){
-    // Array collections
-    const arrKeys = ['users','courses','categories','instructors','transactions','coupons',
-      'reviews','threads','calendar','notifications','affiliates','memberships',
-      'broadcasts','materials','certificates','paymentTests','cart'];
-    // Singleton (object) collections
-    const objKeys = ['certTemplate','paymentSettings','theme','settings'];
-    // Hindari trigger autoSync saat pull (write langsung ke localStorage).
-    const writeLocal = (k,v)=>{ const d=DB.load(); d[k]=v; DB.save(d); };
-    arrKeys.forEach(k=>{ if (Array.isArray(r.data[k]) && r.data[k].length) writeLocal(k, r.data[k]); });
-    objKeys.forEach(k=>{ if (r.data[k] && typeof r.data[k]==='object') writeLocal(k, r.data[k]); });
-    toast('Data tersinkron dari server','success');
-  }
+  _applyPull(r);
+  if(r && r.ok && r.data && !silent) toast('Data tersinkron dari server','success');
+  return r;
 }
 // push seluruh state lokal ke backend (sekali jalan saat first run)
 async function pushToBackend(){
@@ -466,11 +444,7 @@ async function pushToBackend(){
     coupons:DB.get('coupons',[]), reviews:DB.get('reviews',[]), threads:DB.get('threads',[]),
     calendar:DB.get('calendar',[]), notifications:DB.get('notifications',[]),
     affiliates:DB.get('affiliates',[]), memberships:DB.get('memberships',[]),
-    broadcasts:DB.get('broadcasts',[]), materials:DB.get('materials',[]),
-    certificates:DB.get('certificates',[]), paymentTests:DB.get('paymentTests',[]),
-    cart:DB.get('cart',{}),
-    certTemplate:DB.get('certTemplate',null), paymentSettings:DB.get('paymentSettings',null),
-    theme:DB.get('theme',null), settings:DB.get('settings',null)
+    broadcasts:DB.get('broadcasts',[]), materials:DB.get('materials',[])
   };
   return apiFetch('syncPush', payload);
 }
@@ -622,7 +596,7 @@ function seed(){
       id:'u'+(i+1),
       name:nm,
       email:`peserta${i+1}@lms.com`,
-      // PASSWORD TIDAK DISIMPAN DI FRONTEND — login via backend
+      password:'Peserta123!',
       role:'student',
       joinedAt: Date.now()-Math.floor(Math.random()*180)*86400000,
       status: i%9===0?'inactive':'active',
@@ -630,12 +604,12 @@ function seed(){
       wishlist:[],
     });
   }
-  // Hanya 3 akun DEMO yg simpan password lokal — bisa disembunyikan via Settings > Keamanan > showDemo
+  // Admin + peserta default
   const users = [
-    {id:'admin1',name:'Administrator',email:'admin@lms.com',password:'Admin123!',role:'admin',joinedAt:Date.now()-86400000*365,status:'active',enrolled:[],wishlist:[],_demo:true},
+    {id:'admin1',name:'Administrator',email:'admin@lms.com',password:'Admin123!',role:'admin',joinedAt:Date.now()-86400000*365,status:'active',enrolled:[],wishlist:[]},
     {id:'student0',name:'Peserta Demo',email:'peserta@lms.com',password:'Peserta123!',role:'student',joinedAt:Date.now()-86400000*30,status:'active',
       enrolled:[{courseId:'k1',progress:65,completedModules:[]},{courseId:'k5',progress:100,completedModules:[]},{courseId:'k7',progress:25,completedModules:[]}],
-      wishlist:['k3','k10'],_demo:true},
+      wishlist:['k3','k10']},
     ...students,
   ];
 
@@ -676,10 +650,9 @@ function seed(){
   const settings={
     general:{name:'EduFlow LMS', tagline:'Belajar Tanpa Batas', logo:'🎓'},
     seo:{title:'EduFlow LMS - Platform Kursus Online',desc:'Belajar skill digital dari para ahli.'},
-    // API keys TIDAK lagi disimpan di frontend — ada di Script Properties GAS.
-    payment:{midtransKey:'***di-Script-Properties***',xenditKey:'***',stripeKey:'***',paypalKey:'***'},
+    payment:{midtransKey:'SB-Mid-server-XXXXXXX',xenditKey:'xnd_demo_key',stripeKey:'pk_test_demo',paypalKey:'demo_paypal'},
     smtp:{host:'smtp.gmail.com',port:587,user:'noreply@lms.com'},
-    security:{sessionTimeout:60,minPwLen:8,showDemo:true},
+    security:{sessionTimeout:60,minPwLen:8},
   };
 
   const calendar=[
@@ -741,63 +714,53 @@ function checkLogin(){
   return false;
 }
 
-function login(email, password, remember){
-  // 1) JIKA backend aktif → server adalah sumber kebenaran (password tidak dicek lokal)
-  if (API_ENABLED()){
-    // async path: caller akan menerima Promise via window.loginAsync; fungsi sync ini
-    // hanya dipakai bila backend offline.
-    return loginAsync(email, password, remember);
-  }
-  // 2) Offline / demo mode → cek lokal terbatas (hanya akun bertanda _demo)
+async function login(email, password, remember){
+  // 1) Verifikasi lokal (akun demo / mode offline)
   const users = DB.get('users',[]);
-  let u = users.find(x=>x._demo && x.email.toLowerCase()===email.toLowerCase() && x.password===password);
+  let u = users.find(x=>x.email.toLowerCase()===email.toLowerCase() && x.password===password);
+  // Login Instruktur dari DB.instructors
   if(!u){
     const ins = DB.get('instructors',[]).find(x=>x.email.toLowerCase()===email.toLowerCase());
     if(ins){
       const pw = ins.password || 'Instruktur123!';
       if(password === pw){
         u = { id:ins.id, name:ins.name, email:ins.email, role:'instructor', status:'active',
-              expertise:ins.expertise||'', bio:ins.bio||'', permissions:ins.permissions||{}, joinedAt:ins.joinedAt||Date.now(), _demo:true };
+              expertise:ins.expertise||'', bio:ins.bio||'', permissions:ins.permissions||{}, joinedAt:ins.joinedAt||Date.now() };
       }
     }
   }
-  if(!u) return {ok:false,msg:'Backend offline. Hanya akun demo yang bisa login.'};
-  if(u.status==='inactive') return {ok:false,msg:'Akun dinonaktifkan'};
-  session.set({userId:u.id, loginAt:Date.now(), remember:!!remember});
-  state.user = u;
-  return {ok:true};
+  if(u){
+    if(u.status==='inactive') return {ok:false,msg:'Akun dinonaktifkan'};
+    session.set({userId:u.id, loginAt:Date.now(), remember:!!remember});
+    state.user = u;
+    return {ok:true};
+  }
+  // 2) Verifikasi ke server (akun yang hanya ada di backend, mis. akun default admin/instruktur/peserta)
+  if (API_ENABLED()){
+    const r = await apiFetch('login',{email,password});
+    if (r && r.ok && r.user){
+      const us = DB.get('users',[]); const ix = us.findIndex(x=>x.id===r.user.id);
+      if (ix>=0) us[ix] = {...us[ix], ...r.user, serverAuth:true}; else us.push({...r.user, serverAuth:true});
+      DB.set('users',us);
+      session.set({userId:r.user.id, loginAt:Date.now(), remember:!!remember});
+      state.user = us.find(x=>x.id===r.user.id);
+      return {ok:true};
+    }
+    if (r && r.msg && !r.offline) return {ok:false,msg:r.msg};
+  }
+  return {ok:false,msg:'Email atau password salah'};
 }
-async function loginAsync(email, password, remember){
-  const r = await apiFetch('login', {email, password});
-  if (!r || !r.ok) return {ok:false, msg:(r && r.msg) || 'Login gagal'};
-  // simpan profil minimal (TANPA password) ke users cache
-  const us = DB.get('users',[]); const ix = us.findIndex(x=>x.id===r.user.id);
-  const safe = Object.assign({}, r.user); delete safe.password;
-  if (ix>=0) us[ix] = {...us[ix], ...safe}; else us.push(safe);
-  DB.set('users', us);
-  session.set({userId:r.user.id, loginAt:Date.now(), remember:!!remember});
-  state.user = safe;
-  return {ok:true};
-}
-function logout(){ session.clear(); tokenStore.clear(); state.user=null; render(); }
+function logout(){ session.clear(); state.user=null; if($('#backdrop')) $('#backdrop').classList.remove('open'); render(); }
 function register(data){
-  if (API_ENABLED()) return registerAsync(data);
-  // offline demo: simpan ke local saja (tetap tanpa kirim plaintext keluar)
   const users = DB.get('users',[]);
   if(users.some(u=>u.email.toLowerCase()===data.email.toLowerCase())) return {ok:false,msg:'Email sudah terdaftar'};
   const minLen = DB.get('settings').security?.minPwLen||8;
   if(data.password.length < minLen) return {ok:false,msg:`Password minimal ${minLen} karakter`};
-  const nu = {id:uid('u'),name:data.name,email:data.email,password:data.password,role:'student',joinedAt:Date.now(),status:'active',enrolled:[],wishlist:[],_demo:true};
+  const nu = {id:uid('u'),name:data.name,email:data.email,password:data.password,role:'student',joinedAt:Date.now(),status:'active',enrolled:[],wishlist:[]};
   users.push(nu); DB.set('users',users);
+  // simpan juga ke backend (server akan hash password & cek duplikasi)
+  apiSync('register',{name:data.name,email:data.email,password:data.password});
   return {ok:true,user:nu};
-}
-async function registerAsync(data){
-  const r = await apiFetch('register', {name:data.name, email:data.email, password:data.password});
-  if (!r || !r.ok) return {ok:false, msg:(r && r.msg) || 'Registrasi gagal'};
-  const us = DB.get('users',[]);
-  const safe = Object.assign({}, r.user); delete safe.password;
-  us.push(safe); DB.set('users', us);
-  return {ok:true, user:safe};
 }
 
 /* ============================================================
@@ -861,12 +824,12 @@ function loginForm(){
       <button class="btn primary full" type="submit">Masuk</button>
       <div class="divider">atau</div>
       <button class="btn ghost full" type="button" data-go="register">Buat akun baru</button>
-      ${(DB.get('settings').security?.showDemo!==false) ? `<div class="demo-creds">
-        <b>🔐 Akun Demo:</b><br>
+      ${DB.get('demoVisible',true)?`<div class="demo-creds" id="demoCreds">
+        <div class="flex justify-between items-center"><b>🔐 Akun Demo:</b><button type="button" class="btn sm ghost" onclick="hideDemoCreds()" title="Sembunyikan">✕</button></div>
         Admin: <code>admin@lms.com</code> / <code>Admin123!</code><br>
         Peserta: <code>peserta@lms.com</code> / <code>Peserta123!</code><br>
-        Instruktur: <code>instruktur@lms.com</code> / <code>Instruktur123!</code>
-      </div>` : ''}
+        Instruktur: <code>andi@lms.com</code> / <code>Instruktur123!</code>
+      </div>`:''}
     </form>
   `;
 }
@@ -909,6 +872,16 @@ function togglePw(btn){
   inp.type = inp.type==='password'?'text':'password';
 }
 window.togglePw = togglePw;
+window.hideDemoCreds = ()=>{ DB.set('demoVisible',false); const d=document.getElementById('demoCreds'); if(d) d.remove(); toast('Akun demo disembunyikan. Bisa ditampilkan lagi dari Pengaturan admin.','info'); };
+window.toggleDemoVisible = ()=>{ DB.set('demoVisible', !DB.get('demoVisible',true)); toast('Visibilitas akun demo diperbarui','success'); if(typeof renderPage==='function') renderPage(); };
+window.removeDemoAccounts = ()=>confirmModal('Hapus semua akun demo (admin@lms.com, peserta@lms.com, dan instruktur demo)? Tindakan ini permanen di perangkat ini.',()=>{
+  const demoEmails=['admin@lms.com','peserta@lms.com','andi@lms.com','sari@lms.com','budi@lms.com','maya@lms.com','reza@lms.com'];
+  const us=DB.get('users',[]).filter(u=>!demoEmails.includes((u.email||'').toLowerCase()));
+  const ins=DB.get('instructors',[]).filter(i=>!demoEmails.includes((i.email||'').toLowerCase()));
+  DB.set('users',us); DB.set('instructors',ins); DB.set('demoVisible',false);
+  apiSync('syncPush',{users:us,instructors:ins});
+  toast('Akun demo dihapus','success'); if(typeof renderPage==='function') renderPage();
+});
 window.closeModal = closeModal;
 
 function bindAuth(mode){
@@ -923,17 +896,15 @@ function bindAuth(mode){
       showErr('email', !/^\S+@\S+\.\S+$/.test(f.email.value)?'Email tidak valid':'');
       showErr('password', f.password.value.length<6?'Password minimal 6 karakter':'');
       if(!ok) return;
-      const btn = f.querySelector('button[type="submit"]'); if(btn){btn.disabled=true; btn.textContent='Memproses…';}
-      try {
-        const res = login(f.email.value.trim(), f.password.value, f.remember.checked);
-        const r = (res && typeof res.then === 'function') ? await res : res;
-        if(!r.ok){ toast(r.msg,'danger'); return; }
-        toast('Login berhasil','success');
-        render();
-      } finally { if(btn){btn.disabled=false; btn.textContent='Masuk';} }
+      const btn=f.querySelector('button[type="submit"]'); if(btn){btn.disabled=true;btn.textContent='Memproses...';}
+      const r = await login(f.email.value.trim(), f.password.value, f.remember.checked);
+      if(btn){btn.disabled=false;btn.textContent='Masuk';}
+      if(!r.ok){ toast(r.msg,'danger'); return; }
+      toast('Login berhasil','success');
+      render();
     };
   } else if(mode==='register'){
-    $('#regForm').onsubmit = async e=>{
+    $('#regForm').onsubmit = e=>{
       e.preventDefault();
       const f = e.target;
       let ok=true;
@@ -943,14 +914,10 @@ function bindAuth(mode){
       showErr('password', f.password.value.length<8?'Minimal 8 karakter':'');
       showErr('tos', !f.tos.checked?'Wajib disetujui':'');
       if(!ok) return;
-      const btn = f.querySelector('button[type="submit"]'); if(btn){btn.disabled=true; btn.textContent='Memproses…';}
-      try {
-        const res = register({name:f.name.value.trim(),email:f.email.value.trim(),password:f.password.value});
-        const r = (res && typeof res.then === 'function') ? await res : res;
-        if(!r.ok){ toast(r.msg,'danger'); return; }
-        toast('Pendaftaran berhasil! Silakan masuk.','success');
-        renderAuth('login');
-      } finally { if(btn){btn.disabled=false; btn.textContent='Daftar Sekarang';} }
+      const r = register({name:f.name.value.trim(),email:f.email.value.trim(),password:f.password.value});
+      if(!r.ok){ toast(r.msg,'danger'); return; }
+      toast('Pendaftaran berhasil! Silakan masuk.','success');
+      renderAuth('login');
     };
   } else {
     $('#forgotForm').onsubmit = e=>{
@@ -996,6 +963,7 @@ const ADMIN_NAV = [
   {sec:'Insight',items:[
     {id:'reports',label:'Laporan',icon:'M3 3v18h18M7 14l3-3 4 4 6-6'},
     {id:'settings',label:'Pengaturan',icon:'M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.7 1.7 0 00.4 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.4 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1-1.5'},
+    {id:'profile',label:'Profil Admin',icon:'M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8z'},
   ]},
 ];
 
@@ -1127,11 +1095,11 @@ function renderApp(){
     $('#themeBtn').textContent = nx==='dark'?'☀':'🌙';
   };
   $('#logoutBtn').onclick = ()=>confirmModal('Yakin keluar dari sistem?', ()=>{logout(); toast('Berhasil logout','success');});
-  $('#menuToggle').onclick = ()=>{ $('#sidebar').classList.toggle('open'); $('#backdrop').classList.toggle('open'); };
-  $('#backdrop').onclick = ()=>{ $('#sidebar').classList.remove('open'); $('#backdrop').classList.remove('open'); };
-  $('#profileBtn').onclick = ()=>{ state.route = isAdmin?'settings':'profile'; render(); };
+  $('#menuToggle').onclick = ()=>{ $('#sidebar')?.classList.toggle('open'); $('#backdrop')?.classList.toggle('open'); };
+  $('#backdrop').onclick = ()=>{ $('#sidebar')?.classList.remove('open'); $('#backdrop')?.classList.remove('open'); };
+  $('#profileBtn').onclick = ()=>{ state.route = 'profile'; render(); };
   $$('[data-route]').forEach(el=>el.onclick = ()=>{
-    state.route = el.dataset.route; $('#sidebar').classList.remove('open'); $('#backdrop').classList.remove('open');
+    state.route = el.dataset.route; $('#sidebar')?.classList.remove('open'); $('#backdrop')?.classList.remove('open');
     render();
   });
 
@@ -1146,7 +1114,13 @@ function renderApp(){
       pop.classList.add('open');
       $$('a[data-cid]',pop).forEach(a=>a.onclick=()=>{pop.classList.remove('open'); gs.value=''; openCourse(a.dataset.cid);});
     },220);
-    document.addEventListener('click',e=>{if(!gs.contains(e.target)&&!pop.contains(e.target))pop.classList.remove('open');});
+    if(!document._hasSearchEvt){
+      document.addEventListener('click',e=>{
+        const currGs = $('#globalSearch'); const currPop = $('#searchPop');
+        if(currGs && currPop && !currGs.contains(e.target) && !currPop.contains(e.target)) currPop.classList.remove('open');
+      });
+      document._hasSearchEvt = true;
+    }
   }
 
   renderPage();
@@ -1724,8 +1698,8 @@ function materialForm(id){
     }
     const file = $('#matFile').files[0];
     if(!file){ toast('Pilih file dulu','danger'); return; }
-    $('#matStatus').innerHTML = '<span style="color:var(--info)">⏳ Mengupload...</span>';
-    const r = await uploadToDrive(file, {title, description:desc});
+    $('#matStatus').innerHTML = '<span style="color:var(--info)">⏳ Mengupload... 0%</span>';
+    const r = await uploadToDrive(file, {title, description:desc, onProgress:(p)=>{ const st=$('#matStatus'); if(st) st.innerHTML='<span style="color:var(--info)">⏳ Mengupload potongan besar... '+p+'%</span>'; }});
     if(!r.ok){ $('#matStatus').innerHTML='<span style="color:var(--danger)">✕ '+esc(r.msg||'Gagal')+'</span>'; return; }
     const arr = DB.get('materials',[]);
     arr.unshift({ id:uid('mat'), title, description:desc, type:r.data.type, fileId:r.data.fileId, url:r.data.url, viewUrl:r.data.viewUrl||r.data.url, size:r.data.size||file.size, mime:file.type, uploadedAt:Date.now(), fallback:!!r.data.fallback });
@@ -2489,41 +2463,44 @@ PAGES.transactions = el => {
       </div>
       <div class="table-wrap"><table class="table">
         <thead><tr><th>ID</th><th>Peserta</th><th>Kursus</th><th>Gateway</th><th>Jumlah</th><th>Status</th><th>Tanggal</th><th>Aksi</th></tr></thead>
-        <tbody>${data.length?data.map(t=>{
-          const isManual = t.gateway==='qris' || t.gateway==='bank';
-          const canSuccess = isManual && t.status==='pending';
-          const canRefund = t.status==='success';
-          const actions = [
-            canSuccess?`<button class="btn sm success" data-ok="${t.id}">✓ Success</button>`:'',
-            canRefund?`<button class="btn sm danger" data-rf="${t.id}">↩ Refund</button>`:''
-          ].filter(Boolean).join(' ') || '<span class="muted text-sm">-</span>';
-          return `<tr><td><code style="font-size:11px">${t.id}</code></td><td>${esc(t.userName)}</td><td>${esc(t.courseTitle)}</td><td><span class="badge">${t.gateway}</span></td><td><b>${fmtRp(t.amount)}</b></td>
-          <td><span class="badge ${t.status==='success'?'success':t.status==='pending'?'warn':'danger'}">${t.status}</span></td>
+        <tbody>${data.map(t=>`
+          <tr><td><code style="font-size:11px">${t.id}</code></td><td>${esc(t.userName)}</td><td>${esc(t.courseTitle)}</td><td><span class="badge">${t.gateway}</span></td><td><b>${fmtRp(t.amount)}</b></td>
+          <td><span class="badge ${t.status==='success'?'success':t.status==='pending'?'warn':t.status==='refund'?'info':'danger'}">${t.status}</span></td>
           <td>${fmtDate(t.createdAt)}</td>
-          <td>${actions}</td></tr>`;
-        }).join(''):'<tr><td colspan="8"><div class="empty">Belum ada transaksi</div></td></tr>'}</tbody>
+          <td>
+            ${t.status==='pending'?'<button class="btn sm primary" data-ap="'+t.id+'">Approve</button>':''}
+            ${t.status==='success'?'<button class="btn sm danger" data-rf="'+t.id+'">Refund</button>':''}
+          </td></tr>
+        `).join('')}</tbody>
       </table></div>
     `;
     el.querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{filter=b.dataset.f;render();});
-    el.querySelectorAll('[data-ok]').forEach(b=>b.onclick=()=>confirmModal('Tandai transaksi ini SUCCESS & aktifkan akses kursus peserta?',()=>{
-      const ts=DB.get('transactions',[]); const ix=ts.findIndex(x=>x.id===b.dataset.ok);
-      if(ix<0) return;
-      const t = ts[ix]; t.status='success';
-      const us=DB.get('users',[]); const ui=us.findIndex(u=>u.id===t.userId);
-      if(ui>=0 && !us[ui].enrolled.some(e=>e.courseId===t.courseId)){
-        us[ui].enrolled.push({courseId:t.courseId,progress:0,completedModules:[]});
-        DB.set('users',us); apiSync('syncPush',{users:us});
-        if(state.user && state.user.id===us[ui].id) state.user=us[ui];
+    el.querySelectorAll('[data-ap]').forEach(b=>b.onclick=()=>{
+      const ts=DB.get('transactions',[]); const ix=ts.findIndex(x=>x.id===b.dataset.ap);
+      if(ix>=0) {
+        ts[ix].status='success'; DB.set('transactions',ts); toast('Transaksi di-approve','success'); render();
       }
-      DB.set('transactions',ts); apiSync('syncPush',{transactions:ts});
-      toast('Transaksi dikonfirmasi success','success'); render();
-    }));
-    el.querySelectorAll('[data-rf]').forEach(b=>b.onclick=()=>confirmModal('Proses refund transaksi ini?',()=>{
-      const ts=DB.get('transactions',[]); const ix=ts.findIndex(x=>x.id===b.dataset.rf);
-      if(ix<0) return;
-      ts[ix].status='refund'; DB.set('transactions',ts); apiSync('syncPush',{transactions:ts});
-      toast('Refund diproses','success'); render();
-    }));
+    });
+    el.querySelectorAll('[data-rf]').forEach(b=>b.onclick=()=>{
+      modal({
+        title: 'Verifikasi Refund',
+        body: `<p>Masukkan password admin Anda untuk memproses pengembalian uang:</p>
+               <input type="password" class="input mt-2" id="rfPw" placeholder="Password verifikasi" />`,
+        foot: `<button class="btn ghost" onclick="closeModal()">Batal</button>
+               <button class="btn danger" id="btnRfConfirm">Konfirmasi Refund</button>`
+      });
+      $('#btnRfConfirm').onclick = () => {
+        if ($('#rfPw').value === state.user.password) {
+          const ts=DB.get('transactions',[]); const ix=ts.findIndex(x=>x.id===b.dataset.rf);
+          if(ix>=0) {
+            ts[ix].status='refund'; DB.set('transactions',ts); toast('Refund berhasil, uang kursus kembali ke peserta','success'); render();
+          }
+          closeModal();
+        } else {
+          toast('Password salah, status tidak berubah','danger');
+        }
+      };
+    });
   };
   render();
 };
@@ -2719,10 +2696,12 @@ function gatewayConfigForm(id, after){
   });
   $('#gcSave').onclick=()=>{
     const f=$('#gcF');
-    const newCfg = { enabled:f.enabled.checked, mode:f.mode.value };
-    g.fields.forEach(fd=>newCfg[fd]=f[fd].value);
+    // Kredensial rahasia dikirim ke backend (disimpan di sheet Secrets), TIDAK disimpan di browser.
+    const creds = {}; g.fields.forEach(fd=>{ if(f[fd].value) creds[fd]=f[fd].value; });
+    if(Object.keys(creds).length) apiSync('savePaymentSecret', { gateway:id, creds });
+    const newCfg = { enabled:f.enabled.checked, mode:f.mode.value, hasSecret: Object.keys(creds).length>0 || !!(s.gateways[id]&&s.gateways[id].hasSecret) };
     s.gateways[id] = newCfg; savePaySettings(s);
-    closeModal(); toast(g.name+' tersimpan','success'); after&&after();
+    closeModal(); toast(g.name+' tersimpan (kredensial aman di backend)','success'); after&&after();
   };
   $('#gcDel').onclick=()=>confirmModal('Hapus konfigurasi '+g.name+'?',()=>{
     delete s.gateways[id]; savePaySettings(s);
@@ -3254,6 +3233,11 @@ PAGES.settings = el => {
           <div class="field"><label>Nama LMS</label><input class="input" name="name" value="${esc(s.general.name)}"/></div>
           <div class="field"><label>Tagline</label><input class="input" name="tagline" value="${esc(s.general.tagline)}"/></div>
           ${emojiField('logo', s.general.logo, 'Logo (Emoji / Ikon)')}
+          <div class="field"><label>🖼️ Logo Gambar (untuk ikon Web App / PWA di desktop & HP)</label>
+            <input class="input" type="file" id="logoImg" accept="image/png,image/jpeg,image/svg+xml,image/webp"/>
+            <div class="muted text-sm" style="margin-top:4px">PNG/JPG/SVG, disarankan 512×512. ${s.general.logoImage?'<span class="badge success">Logo terpasang</span>':'Belum ada logo gambar.'}</div>
+            ${s.general.logoImage?`<div class="flex items-center gap-2" style="margin-top:8px"><img src="${esc(s.general.logoImage)}" alt="logo" style="width:72px;height:72px;object-fit:contain;border:1px solid var(--border);border-radius:12px"/><button type="button" class="btn sm danger" id="logoDel">Hapus Logo</button></div>`:''}
+          </div>
           <button class="btn primary">Simpan</button>
         </form>`,
         seo:`<form id="gf">
@@ -3278,7 +3262,14 @@ PAGES.settings = el => {
           <div class="field"><label>Session Timeout (menit)</label><input class="input" type="number" name="sessionTimeout" min="5" value="${s.security.sessionTimeout}"/></div>
           <div class="field"><label>Minimal Panjang Password</label><input class="input" type="number" name="minPwLen" min="6" value="${s.security.minPwLen}"/></div>
           <button class="btn primary">Simpan</button>
-        </form>`,
+        </form>
+        <hr style="margin:14px 0;border:0;border-top:1px solid var(--border)"/>
+        <b>Akun Demo (Frontend)</b>
+        <p class="muted text-sm">Akun demo memudahkan uji coba. Anda dapat menyembunyikan tampilannya di halaman login atau menghapus akunnya kapan saja.</p>
+        <div class="flex gap-1 mt-2" style="flex-wrap:wrap">
+          <button type="button" class="btn sm" onclick="toggleDemoVisible()">${DB.get('demoVisible',true)?'🙈 Sembunyikan dari Login':'👁️ Tampilkan di Login'}</button>
+          <button type="button" class="btn sm danger" onclick="removeDemoAccounts()">🗑️ Hapus Semua Akun Demo</button>
+        </div>`,
       })[tab]}</div>
     `;
     el.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{tab=b.dataset.t;draw();});
@@ -3288,6 +3279,26 @@ PAGES.settings = el => {
       Object.keys(ns[tab]).forEach(k=>{ if(f[k]) ns[tab][k] = isNaN(+f[k].value)||f[k].type==='text'||f[k].type==='email'?f[k].value:+f[k].value; });
       DB.set('settings',ns); toast('Pengaturan disimpan','success');
     };
+    if(tab==='general'){
+      const li = el.querySelector('#logoImg');
+      if(li) li.onchange = e=>{
+        const file = e.target.files[0]; if(!file) return;
+        if(file.size>1024*1024){ toast('Logo maks 1MB','danger'); return; }
+        const fr = new FileReader();
+        fr.onload = ev=>{
+          const ns = DB.get('settings'); ns.general.logoImage = ev.target.result;
+          DB.set('settings',ns); apiSync('syncPush',{settings:ns});
+          applyBranding(); toast('Logo tersimpan & dipasang ke Web App','success'); draw();
+        };
+        fr.readAsDataURL(file);
+      };
+      const ld = el.querySelector('#logoDel');
+      if(ld) ld.onclick = ()=>{
+        const ns = DB.get('settings'); delete ns.general.logoImage;
+        DB.set('settings',ns); apiSync('syncPush',{settings:ns});
+        applyBranding(); toast('Logo dihapus','success'); draw();
+      };
+    }
   };
   draw();
 };
@@ -3857,8 +3868,8 @@ function checkout(items, total){
       <div class="field"><label>Nomor HP</label><input class="input" name="phone" required pattern="[0-9+\\-\\s]{8,}"/></div>
       <div class="field"><label>Metode Pembayaran</label>
         <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px">
-          ${methods.map((g,i)=>`<label class="card hover" style="text-align:center;cursor:pointer;padding:14px;position:relative">
-            <input type="radio" name="gw" value="${g.id}" ${i===0?'checked':''} style="display:none"/>
+          ${methods.map((g,i)=>`<label class="card hover pm-opt ${i===0?'pm-selected':''}" style="text-align:center;cursor:pointer;padding:14px;position:relative">
+            <input type="radio" name="gw" value="${g.id}" ${i===0?'checked':''} style="display:none" onchange="document.querySelectorAll('.pm-opt').forEach(x=>x.classList.remove('pm-selected'));this.closest('.pm-opt').classList.add('pm-selected')"/>
             <div style="font-size:30px">${g.icon}</div>
             <b style="font-size:12px;display:block;margin-top:4px">${esc(g.name)}</b>
             ${g.mode==='manual'?'<div class="badge warn" style="margin-top:4px;font-size:9px">Konfirmasi Manual</div>':`<div class="badge ${g.mode2==='live'?'success':'primary'}" style="margin-top:4px;font-size:9px">${g.mode2==='live'?'Live':'Sandbox'}</div>`}
@@ -3996,21 +4007,45 @@ PAGES.profile = el => {
     const us=DB.get('users',[]); const ix=us.findIndex(x=>x.id===u.id);
     us[ix].name=f.name.value; us[ix].email=f.email.value;
     us[ix].ig=f.ig.value; us[ix].li=f.li.value; us[ix].tw=f.tw.value;
+    let newPw='';
     if(f.password.value){
       const minL = DB.get('settings').security.minPwLen;
       if(f.password.value.length<minL){toast(`Password minimal ${minL} karakter`,'danger');return;}
-      us[ix].password = f.password.value;
+      newPw = f.password.value;
+      // Password disimpan terenkripsi di backend; jangan simpan plaintext untuk akun yang diautentikasi server.
+      if(!us[ix].serverAuth) us[ix].password = newPw;
     }
-    DB.set('users',us); state.user=us[ix]; toast('Profil tersimpan','success'); render();
+    DB.set('users',us); state.user=us[ix];
+    // Sinkron ke backend: update profil + ganti password aman (di-hash di server)
+    apiSync('updateProfile', { id:u.id, name:f.name.value, email:f.email.value, ig:f.ig.value, li:f.li.value, tw:f.tw.value, password:newPw||undefined });
+    apiSync('syncPush',{users:us});
+    toast('Profil tersimpan','success'); render();
   };
 };
 
 /* ============================================================
  * RENDER ENTRY
  * ============================================================ */
+let _syncedThisSession=false, _syncTimer=null;
 function render(){
-  if(checkLogin()){ renderApp(); }
+  if(checkLogin()){ renderApp(); bootSync(); }
   else renderAuth('login');
+}
+// Sinkronisasi 2 arah dengan Spreadsheet/Drive (termasuk perubahan manual di backend).
+function bootSync(){
+  if(!API_ENABLED() || _syncedThisSession) return;
+  _syncedThisSession=true;
+  apiFetch('syncPull',{},{retries:1}).then(r=>{
+    const serverHasCourses = r && r.ok && r.data && Array.isArray(r.data.courses) && r.data.courses.length;
+    if(r && r.ok && r.data){
+      if(!serverHasCourses){ pushToBackend().then(()=>{ if(state.user) renderPage(); }); } // backend kosong → unggah data awal sekali
+      else { _applyPull(r); if(state.user) renderPage(); }
+    }
+    if(!_syncTimer) _syncTimer=setInterval(()=>{
+      if(!state.user) return;
+      apiFetch('syncPull',{},{retries:1}).then(rr=>{ if(rr&&rr.ok&&rr.data){ _applyPull(rr); renderPage(); } });
+    },45000); // poll tiap 45 detik
+  });
 }
 
 /* ============================================================
@@ -4044,6 +4079,27 @@ if(!navigator.onLine) $('#offlineBanner').classList.remove('hidden');
 
 // Theme init
 document.documentElement.dataset.theme = DB.get('theme','light');
+
+/* ===== Branding dinamis: pasang logo & manifest Web App (PWA) dari Pengaturan ===== */
+function applyBranding(){
+  try{
+    const s = DB.get('settings'); if(!s||!s.general) return;
+    const name = s.general.name||'EduFlow LMS';
+    const icon = s.general.logoImage; // data URL gambar (opsional)
+    document.title = (s.seo&&s.seo.title)||name;
+    if(icon){
+      let fav=document.querySelector('link[rel="icon"]'); if(!fav){fav=document.createElement('link');fav.rel='icon';document.head.appendChild(fav);} fav.href=icon;
+      let at=document.querySelector('link[rel="apple-touch-icon"]'); if(!at){at=document.createElement('link');at.rel='apple-touch-icon';document.head.appendChild(at);} at.href=icon;
+      const manifest = { name:name, short_name:(name||'EduFlow').slice(0,12), start_url:'.', display:'standalone',
+        background_color:'#0f172a', theme_color:'#6366f1',
+        icons:[{src:icon,sizes:'192x192',type:'image/png',purpose:'any maskable'},{src:icon,sizes:'512x512',type:'image/png',purpose:'any maskable'}] };
+      const blob = new Blob([JSON.stringify(manifest)],{type:'application/manifest+json'});
+      const url = URL.createObjectURL(blob);
+      let mf=document.querySelector('link[rel="manifest"]'); if(!mf){mf=document.createElement('link');mf.rel='manifest';document.head.appendChild(mf);} mf.href=url;
+    }
+  }catch(e){}
+}
+applyBranding();
 
 /* ============================================================
  * INSTRUCTOR PAGES
