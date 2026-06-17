@@ -297,31 +297,10 @@ canvas.chart{width:100%;max-height:280px}
 /* ---------------- STORAGE LAYER ---------------- */
 const DB = {
   k:'eduflow_v1',
-  _q: {},
-  _t: null,
   load(){ try{ return JSON.parse(localStorage.getItem(this.k)||'{}'); }catch(e){ return {}; } },
   save(d){ localStorage.setItem(this.k, JSON.stringify(d)); },
   get(key, def){ const d=this.load(); return key in d? d[key] : def; },
-  set(key, val){ 
-    const d=this.load(); 
-    d[key]=val; 
-    this.save(d); 
-    
-    // Auto-sync setiap perubahan ke backend (CRUD) untuk mencegah ada data yang terlewat
-    const syncKeys = ['users','courses','categories','instructors','transactions','coupons','reviews','threads','calendar','notifications','affiliates','memberships','broadcasts','materials','certificates','settings','certTemplate','paymentSettings'];
-    if(syncKeys.includes(key) && typeof apiSync === 'function'){
-      try {
-        if (API_ENABLED()) {
-          clearTimeout(this._t);
-          this._q[key] = val;
-          this._t = setTimeout(()=>{
-            apiSync('syncPush', this._q);
-            this._q = {};
-          }, 1500); // Debounce 1.5 detik agar efisien dan menghindari limitasi (spam) API GAS
-        }
-      } catch(e) {}
-    }
-  },
+  set(key, val){ const d=this.load(); d[key]=val; this.save(d); },
 };
 const session = {
   get(){ try{return JSON.parse(localStorage.getItem('eduflow_session')||'null');}catch(e){return null;} },
@@ -334,7 +313,7 @@ const session = {
  * Ganti GAS_URL dengan URL Web App deploy GAS Anda.
  * apiFetch(action,payload) = async wrapper + retry exponential backoff (max 3x)
  * ============================================================ */
-const GAS_URL = "https://script.google.com/macros/s/AKfycbyZFZNkPlLE698z7VbNGipIFMdvnUPrG4OSv7daYP3Yj1vGpbH8PqAJbCSwjQqTdzvj/exec"; // <-- paste URL Web App GAS di sini
+const GAS_URL = "https://script.google.com/macros/s/AKfycbzO0CvSchJregVslwhsafW_lgNDaqhgG-2dBCg2nEimyPu7dkuFJzSPlHIxJiQlpfsy/exec"; // <-- paste URL Web App GAS di sini
 const HMAC_SECRET = "V9kX4mP7tR2wQ8zN5cL1hF6aD3sJ9eB7yU2gK8nM4vC1xT5qW9rL6pZ3dH7fS2aY8nE4jR1uI6oP9bV5cX2tM7wQ3kL8yF1"; // <-- samakan dengan Script Properties HMAC_SECRET di GAS
 const API_ENABLED = () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
 
@@ -522,51 +501,6 @@ async function pushToBackend(){
 }
 window.pullFromBackend = pullFromBackend;
 window.pushToBackend = pushToBackend;
-
-// Fungsi sinkronisasi 2 arah penuh (menyamakan data frontend & backend)
-async function synchronize(mode = 'pull-first', silent = false) {
-  if (!API_ENABLED()) return { ok: false };
-  if (!silent) toast('Menyinkronkan data frontend & backend...', 'info');
-
-  let pushOk = true;
-  let pullOk = true;
-
-  try {
-    if (mode === 'push-first') {
-      // Dorong data lokal dulu (berguna saat baru online dari mode offline)
-      const pRes = await pushToBackend();
-      pushOk = pRes.ok;
-      const pullRes = await pullFromBackend(true);
-      pullOk = pullRes && pullRes.ok;
-    } else {
-      // Tarik data server dulu (mencegah penimpaan buta saat boot)
-      const r = await apiFetch('syncPull', {}, {retries: 1});
-      pullOk = r && r.ok;
-      
-      const serverHasData = r && r.ok && r.data && Array.isArray(r.data.users) && r.data.users.length > 0;
-      
-      if (r && r.ok && r.data) {
-        if (!serverHasData) {
-          const pRes = await pushToBackend();
-          pushOk = pRes.ok;
-        } else {
-          _applyPull(r);
-        }
-      }
-    }
-  } catch(e) {
-    pushOk = false; pullOk = false;
-  }
-
-  if (!silent) {
-    if (pushOk && pullOk) toast('Sinkronisasi selesai', 'success');
-    else toast('Sinkronisasi selesai dengan peringatan', 'warn');
-  }
-
-  if (typeof renderPage === 'function' && state.user) renderPage();
-  return { ok: pushOk && pullOk };
-}
-window.synchronize = window.sync = synchronize;
 
 /* ---------------- HELPERS ---------------- */
 const $ = (s,el=document)=>el.querySelector(s);
@@ -4152,13 +4086,17 @@ function render(){
 function bootSync(){
   if(!API_ENABLED() || _syncedThisSession) return;
   _syncedThisSession=true;
-  
-  synchronize('pull-first', true); // Jalankan sinkronisasi awal saat aplikasi terbuka
-
-  if(!_syncTimer) _syncTimer=setInterval(()=>{
-    if(!state.user) return;
-    synchronize('pull-first', true); // poll dan sinkronkan tiap 45 detik
-  },45000); 
+  apiFetch('syncPull',{},{retries:1}).then(r=>{
+    const serverHasCourses = r && r.ok && r.data && Array.isArray(r.data.courses) && r.data.courses.length;
+    if(r && r.ok && r.data){
+      if(!serverHasCourses){ pushToBackend().then(()=>{ if(state.user) renderPage(); }); } // backend kosong → unggah data awal sekali
+      else { _applyPull(r); if(state.user) renderPage(); }
+    }
+    if(!_syncTimer) _syncTimer=setInterval(()=>{
+      if(!state.user) return;
+      apiFetch('syncPull',{},{retries:1}).then(rr=>{ if(rr&&rr.ok&&rr.data){ _applyPull(rr); renderPage(); } });
+    },45000); // poll tiap 45 detik
+  });
 }
 
 /* ============================================================
@@ -4188,8 +4126,8 @@ function bootSync(){
 
 window.addEventListener('online', ()=>{
   $('#offlineBanner').classList.add('hidden'); 
-  toast('Kembali online. Menjalankan sinkronisasi penuh...','info');
-  synchronize('push-first', true).then(r => {
+  toast('Kembali online. Menyinkronkan data ke server...','info');
+  pushToBackend().then(r => {
     if(r && r.ok) toast('Semua data berhasil disinkronkan ke server','success');
     else toast('Gagal sinkronisasi beberapa data ke server','danger');
   });
