@@ -523,6 +523,51 @@ async function pushToBackend(){
 window.pullFromBackend = pullFromBackend;
 window.pushToBackend = pushToBackend;
 
+// Fungsi sinkronisasi 2 arah penuh (menyamakan data frontend & backend)
+async function synchronize(mode = 'pull-first', silent = false) {
+  if (!API_ENABLED()) return { ok: false };
+  if (!silent) toast('Menyinkronkan data frontend & backend...', 'info');
+
+  let pushOk = true;
+  let pullOk = true;
+
+  try {
+    if (mode === 'push-first') {
+      // Dorong data lokal dulu (berguna saat baru online dari mode offline)
+      const pRes = await pushToBackend();
+      pushOk = pRes.ok;
+      const pullRes = await pullFromBackend(true);
+      pullOk = pullRes && pullRes.ok;
+    } else {
+      // Tarik data server dulu (mencegah penimpaan buta saat boot)
+      const r = await apiFetch('syncPull', {}, {retries: 1});
+      pullOk = r && r.ok;
+      
+      const serverHasData = r && r.ok && r.data && Array.isArray(r.data.users) && r.data.users.length > 0;
+      
+      if (r && r.ok && r.data) {
+        if (!serverHasData) {
+          const pRes = await pushToBackend();
+          pushOk = pRes.ok;
+        } else {
+          _applyPull(r);
+        }
+      }
+    }
+  } catch(e) {
+    pushOk = false; pullOk = false;
+  }
+
+  if (!silent) {
+    if (pushOk && pullOk) toast('Sinkronisasi selesai', 'success');
+    else toast('Sinkronisasi selesai dengan peringatan', 'warn');
+  }
+
+  if (typeof renderPage === 'function' && state.user) renderPage();
+  return { ok: pushOk && pullOk };
+}
+window.synchronize = window.sync = synchronize;
+
 /* ---------------- HELPERS ---------------- */
 const $ = (s,el=document)=>el.querySelector(s);
 const $$= (s,el=document)=>[...el.querySelectorAll(s)];
@@ -4107,17 +4152,13 @@ function render(){
 function bootSync(){
   if(!API_ENABLED() || _syncedThisSession) return;
   _syncedThisSession=true;
-  apiFetch('syncPull',{},{retries:1}).then(r=>{
-    const serverHasCourses = r && r.ok && r.data && Array.isArray(r.data.courses) && r.data.courses.length;
-    if(r && r.ok && r.data){
-      if(!serverHasCourses){ pushToBackend().then(()=>{ if(state.user) renderPage(); }); } // backend kosong → unggah data awal sekali
-      else { _applyPull(r); if(state.user) renderPage(); }
-    }
-    if(!_syncTimer) _syncTimer=setInterval(()=>{
-      if(!state.user) return;
-      apiFetch('syncPull',{},{retries:1}).then(rr=>{ if(rr&&rr.ok&&rr.data){ _applyPull(rr); renderPage(); } });
-    },45000); // poll tiap 45 detik
-  });
+  
+  synchronize('pull-first', true); // Jalankan sinkronisasi awal saat aplikasi terbuka
+
+  if(!_syncTimer) _syncTimer=setInterval(()=>{
+    if(!state.user) return;
+    synchronize('pull-first', true); // poll dan sinkronkan tiap 45 detik
+  },45000); 
 }
 
 /* ============================================================
@@ -4147,8 +4188,8 @@ function bootSync(){
 
 window.addEventListener('online', ()=>{
   $('#offlineBanner').classList.add('hidden'); 
-  toast('Kembali online. Menyinkronkan data ke server...','info');
-  pushToBackend().then(r => {
+  toast('Kembali online. Menjalankan sinkronisasi penuh...','info');
+  synchronize('push-first', true).then(r => {
     if(r && r.ok) toast('Semua data berhasil disinkronkan ke server','success');
     else toast('Gagal sinkronisasi beberapa data ke server','danger');
   });
