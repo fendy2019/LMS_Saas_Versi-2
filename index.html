@@ -313,7 +313,7 @@ const session = {
  * Ganti GAS_URL dengan URL Web App deploy GAS Anda.
  * apiFetch(action,payload) = async wrapper + retry exponential backoff (max 3x)
  * ============================================================ */
-const GAS_URL = "https://script.google.com/macros/s/AKfycbzgY1Plu2Ns35S58xkfmYrz86ce9qeh7J2Ecw8HlSxdqUBi_38JeIEIom9G2ol1P3Jh/exec"; // <-- paste URL Web App GAS di sini
+const GAS_URL = "https://script.google.com/macros/s/AKfycbyusrlOny1MRWgDGzJC4oEXzgrdtrv1KmQCInw4e1FtoE8COEv_F7Wlmy2NT7C0BmP_/exec"; // <-- paste URL Web App GAS di sini
 const API_ENABLED = () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
 
 async function apiFetch(action, payload = {}, opts = {}){
