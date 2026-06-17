@@ -313,13 +313,40 @@ const session = {
  * Ganti GAS_URL dengan URL Web App deploy GAS Anda.
  * apiFetch(action,payload) = async wrapper + retry exponential backoff (max 3x)
  * ============================================================ */
-const GAS_URL = "https://script.google.com/macros/s/AKfycbwRxv-MMgt0ZEErkO0sTttsvv7tnszC7ko-J0-Yt_87vHa0-E_drgFK4Ccw3KkJvm2A/exec"; // <-- paste URL Web App GAS di sini
+const GAS_URL = "https://script.google.com/macros/s/AKfycby7b5XeOVgq8CtyKFmrph-F232Fea0vHmguDbTCMki8mmQ3A3LM2u8cFHOj3sQEM079/exec"; // <-- paste URL Web App GAS di sini
+const HMAC_SECRET = "V9kX4mP7tR2wQ8zN5cL1hF6aD3sJ9eB7yU2gK8nM4vC1xT5qW9rL6pZ3dH7fS2aY8nE4jR1uI6oP9bV5cX2tM7wQ3kL8yF1"; // <-- samakan dengan Script Properties HMAC_SECRET di GAS
 const API_ENABLED = () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
+
+// HMAC-SHA256 + base64url (tanpa padding) — match Utilities.base64EncodeWebSafe di GAS
+async function _hmacSign(message, secret){
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw', enc.encode(secret),
+    { name:'HMAC', hash:'SHA-256' },
+    false, ['sign']
+  );
+  const sigBuf = await crypto.subtle.sign('HMAC', key, enc.encode(message));
+  let bin = '';
+  const bytes = new Uint8Array(sigBuf);
+  for (let i=0; i<bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
 
 async function apiFetch(action, payload = {}, opts = {}){
   if (!API_ENABLED()) return { ok:false, offline:true, msg:'Backend offline (GAS_URL belum diset)' };
   const max = opts.retries ?? 3;
   let delay = 600, lastErr = null;
+
+  // Format yang ditandatangani harus identik dengan verifikasi backend:
+  // JSON.stringify({action, data, ts})
+  const ts = Date.now();
+  const signedObj = { action, data: payload, ts };
+  let sig = '';
+  try {
+    if (action !== 'ping') sig = await _hmacSign(JSON.stringify(signedObj), HMAC_SECRET);
+  } catch(e){ console.warn('[apiFetch] HMAC sign failed:', e); }
+  const bodyStr = JSON.stringify(sig ? Object.assign({}, signedObj, { sig }) : signedObj);
+
   for (let i=0; i<max; i++){
     try {
       const ctrl = new AbortController();
@@ -328,7 +355,7 @@ async function apiFetch(action, payload = {}, opts = {}){
         method:'POST',
         // text/plain agar tidak memicu CORS preflight ke GAS
         headers:{'Content-Type':'text/plain;charset=utf-8'},
-        body: JSON.stringify({ action, data: payload }),
+        body: bodyStr,
         redirect:'follow',
         signal: ctrl.signal
       });
