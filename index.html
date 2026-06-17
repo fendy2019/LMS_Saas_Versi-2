@@ -297,10 +297,31 @@ canvas.chart{width:100%;max-height:280px}
 /* ---------------- STORAGE LAYER ---------------- */
 const DB = {
   k:'eduflow_v1',
+  _q: {},
+  _t: null,
   load(){ try{ return JSON.parse(localStorage.getItem(this.k)||'{}'); }catch(e){ return {}; } },
   save(d){ localStorage.setItem(this.k, JSON.stringify(d)); },
   get(key, def){ const d=this.load(); return key in d? d[key] : def; },
-  set(key, val){ const d=this.load(); d[key]=val; this.save(d); },
+  set(key, val){ 
+    const d=this.load(); 
+    d[key]=val; 
+    this.save(d); 
+    
+    // Auto-sync setiap perubahan ke backend (CRUD) untuk mencegah ada data yang terlewat
+    const syncKeys = ['users','courses','categories','instructors','transactions','coupons','reviews','threads','calendar','notifications','affiliates','memberships','broadcasts','materials','certificates','settings','certTemplate','paymentSettings'];
+    if(syncKeys.includes(key) && typeof apiSync === 'function'){
+      try {
+        if (API_ENABLED()) {
+          clearTimeout(this._t);
+          this._q[key] = val;
+          this._t = setTimeout(()=>{
+            apiSync('syncPush', this._q);
+            this._q = {};
+          }, 1500); // Debounce 1.5 detik agar efisien dan menghindari limitasi (spam) API GAS
+        }
+      } catch(e) {}
+    }
+  },
 };
 const session = {
   get(){ try{return JSON.parse(localStorage.getItem('eduflow_session')||'null');}catch(e){return null;} },
