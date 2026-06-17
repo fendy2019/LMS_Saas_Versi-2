@@ -463,17 +463,41 @@ async function pullFromBackend(silent){
   if(r && r.ok && r.data && !silent) toast('Data tersinkron dari server','success');
   return r;
 }
-// push seluruh state lokal ke backend (sekali jalan saat first run)
+// push seluruh state lokal ke backend secara bertahap untuk menghindari timeout
 async function pushToBackend(){
-  const payload = {
-    users:DB.get('users',[]), courses:DB.get('courses',[]), categories:DB.get('categories',[]),
-    instructors:DB.get('instructors',[]), transactions:DB.get('transactions',[]),
-    coupons:DB.get('coupons',[]), reviews:DB.get('reviews',[]), threads:DB.get('threads',[]),
-    calendar:DB.get('calendar',[]), notifications:DB.get('notifications',[]),
-    affiliates:DB.get('affiliates',[]), memberships:DB.get('memberships',[]),
-    broadcasts:DB.get('broadcasts',[]), materials:DB.get('materials',[])
-  };
-  return apiFetch('syncPush', payload);
+  const chunks = [
+    { users: DB.get('users',[]) },
+    { courses: DB.get('courses',[]) },
+    { categories: DB.get('categories',[]) },
+    { instructors: DB.get('instructors',[]) },
+    { transactions: DB.get('transactions',[]) },
+    { coupons: DB.get('coupons',[]) },
+    { reviews: DB.get('reviews',[]) },
+    { threads: DB.get('threads',[]) },
+    { calendar: DB.get('calendar',[]) },
+    { notifications: DB.get('notifications',[]) },
+    { affiliates: DB.get('affiliates',[]) },
+    { memberships: DB.get('memberships',[]) },
+    { broadcasts: DB.get('broadcasts',[]) },
+    { materials: DB.get('materials',[]) },
+    { certificates: DB.get('certificates',[]) },
+    { 
+      settings: DB.get('settings',{}),
+      certTemplate: DB.get('certTemplate',{}),
+      paymentSettings: DB.get('paymentSettings',{})
+    }
+  ];
+
+  let success = true;
+  for (const chunk of chunks) {
+    const r = await apiFetch('syncPush', chunk);
+    if (!r || !r.ok) {
+      success = false;
+      console.warn('[pushToBackend] Gagal memproses chunk:', Object.keys(chunk));
+      break;
+    }
+  }
+  return { ok: success };
 }
 window.pullFromBackend = pullFromBackend;
 window.pushToBackend = pushToBackend;
@@ -4100,7 +4124,14 @@ function bootSync(){
   navigator.serviceWorker.register(swUrl).catch(()=>{});
 })();
 
-window.addEventListener('online', ()=>{$('#offlineBanner').classList.add('hidden'); toast('Kembali online','success');});
+window.addEventListener('online', ()=>{
+  $('#offlineBanner').classList.add('hidden'); 
+  toast('Kembali online. Menyinkronkan data ke server...','info');
+  pushToBackend().then(r => {
+    if(r && r.ok) toast('Semua data berhasil disinkronkan ke server','success');
+    else toast('Gagal sinkronisasi beberapa data ke server','danger');
+  });
+});
 window.addEventListener('offline', ()=>{$('#offlineBanner').classList.remove('hidden'); toast('Mode offline aktif','warn');});
 if(!navigator.onLine) $('#offlineBanner').classList.remove('hidden');
 
