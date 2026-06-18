@@ -116,8 +116,7 @@ img{max-width:100%;display:block}
 .auth-card{width:100%;max-width:420px}
 .auth-card h2{font-size:26px;font-weight:800;margin-bottom:6px}
 .auth-card .sub{color:var(--text-soft);margin-bottom:24px}
-.demo-creds{background:var(--primary-soft);border:1px dashed var(--primary);border-radius:var(--radius-sm);padding:12px;margin-top:16px;font-size:12.5px}
-.demo-creds code{background:rgba(0,0,0,.06);padding:2px 6px;border-radius:4px;font-size:12px}
+.demo-creds{display:none}
 .divider{display:flex;align-items:center;gap:10px;margin:18px 0;color:var(--muted);font-size:12px}
 .divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--border)}
 @media (max-width:900px){.auth-wrap{grid-template-columns:1fr}.auth-hero{display:none}}
@@ -583,152 +582,36 @@ window.filterEmojiPicker = (fid,q)=>{
 };
 
 /* ---------------- SEED DATA ---------------- */
-function seed(){
-  if(DB.get('seeded')) return;
-  const categories = [
-    {id:'c1',name:'Digital Marketing',icon:'📈'},
-    {id:'c2',name:'Design',icon:'🎨'},
-    {id:'c3',name:'Programming',icon:'💻'},
-    {id:'c4',name:'AI & Data',icon:'🤖'},
-    {id:'c5',name:'Bisnis',icon:'💼'},
-  ];
-  const instructors = [
-    {id:'i1',name:'Andi Pratama',email:'andi@lms.com',expertise:'Digital Marketing',bio:'Praktisi marketing 10 tahun'},
-    {id:'i2',name:'Sari Wijaya',email:'sari@lms.com',expertise:'UI/UX Design',bio:'Senior Designer di Tokopedia'},
-    {id:'i3',name:'Budi Santoso',email:'budi@lms.com',expertise:'Web Development',bio:'Full-stack engineer'},
-    {id:'i4',name:'Maya Putri',email:'maya@lms.com',expertise:'AI Engineer',bio:'ML Researcher'},
-    {id:'i5',name:'Reza Hakim',email:'reza@lms.com',expertise:'Business Strategy',bio:'CEO startup unicorn'},
-  ];
-  const courseSpec = [
-    ['Digital Marketing Fundamentals','c1','i1',499000,'📈'],
-    ['SEO Mastery 2026','c1','i1',599000,'🔍'],
-    ['Google Ads Pro','c1','i1',799000,'📊'],
-    ['Meta Ads & Funnel','c1','i1',699000,'📱'],
-    ['UI/UX Design Bootcamp','c2','i2',899000,'🎨'],
-    ['Figma untuk Pemula','c2','i2',399000,'✏️'],
-    ['Web Development Lengkap','c3','i3',1299000,'💻'],
-    ['JavaScript Modern ES6+','c3','i3',699000,'⚡'],
-    ['Laravel 11 dari Nol','c3','i3',999000,'🛠️'],
-    ['AI Automation dengan n8n','c4','i4',1499000,'🤖'],
-  ];
-  const courses = courseSpec.map((s,i)=>({
-    id:'k'+(i+1), title:s[0], categoryId:s[1], instructorId:s[2], price:s[3], emoji:s[4],
-    description:'Pelajari '+s[0]+' dari nol hingga mahir dengan studi kasus nyata, project portfolio, dan sertifikat.',
-    status: i<8?'published':'draft',
-    level:['Pemula','Menengah','Mahir'][i%3],
-    duration: 8+i*2, // hours
-    enrolled: Math.floor(40+Math.random()*200),
-    rating: (4.2+Math.random()*0.7).toFixed(1),
-    createdAt: Date.now()-i*86400000*7,
-    modules:[
-      {id:uid('m'),title:'Pengenalan & Setup',type:'video',duration:'12:30',content:'Selamat datang di kursus '+s[0]+'!'},
-      {id:uid('m'),title:'Konsep Dasar',type:'video',duration:'18:45',content:'Pelajari fondasi penting.'},
-      {id:uid('m'),title:'Modul PDF: Cheatsheet',type:'pdf',content:'PDF Materi - '+s[0]},
-      {id:uid('m'),title:'Praktik Studi Kasus',type:'video',duration:'24:10',content:'Implementasi pada kasus nyata.'},
-      {id:uid('m'),title:'Quiz: Uji Pemahaman',type:'quiz',questions:[
-        {q:'Apa fungsi utama dari '+s[0]+'?',opts:['Hiburan','Membantu pekerjaan','Tidak ada','Lainnya'],a:1},
-        {q:'Tahun konten kursus ini relevan?',opts:['2010','2015','2026','2000'],a:2},
-        {q:'Berapa lama sebaiknya berlatih per hari?',opts:['Tidak perlu','15-30 menit','5 jam','24 jam'],a:1},
-      ]},
-      {id:uid('m'),title:'Assignment Akhir',type:'assignment',content:'Buat project portfolio berdasarkan materi.'},
-    ]
-  }));
-
-  // 50 peserta
-  const names=['Ahmad','Budi','Citra','Dewi','Eko','Fitri','Galih','Hani','Indra','Joko','Kartika','Lukman','Mira','Nadia','Oki','Putri','Qory','Rina','Sigit','Tomi','Umar','Vino','Wati','Xena','Yusuf','Zaki'];
-  const surn=['Saputra','Pratama','Wijaya','Santoso','Permata','Lestari','Hidayat','Maulana','Anggraini','Susanto'];
-  const students=[];
-  for(let i=0;i<50;i++){
-    const nm = names[i%names.length]+' '+surn[i%surn.length];
-    students.push({
-      id:'u'+(i+1),
-      name:nm,
-      email:`peserta${i+1}@lms.com`,
-      password:'Peserta123!',
-      role:'student',
-      joinedAt: Date.now()-Math.floor(Math.random()*180)*86400000,
-      status: i%9===0?'inactive':'active',
-      enrolled: courses.slice(0,Math.floor(Math.random()*4)+1).map(c=>({courseId:c.id,progress:Math.floor(Math.random()*100),completedModules:[]})),
-      wishlist:[],
-    });
-  }
-  // Admin + peserta default
-  const users = [
-    {id:'admin1',name:'Administrator',email:'admin@lms.com',password:'Admin123!',role:'admin',joinedAt:Date.now()-86400000*365,status:'active',enrolled:[],wishlist:[]},
-    {id:'student0',name:'Peserta Demo',email:'peserta@lms.com',password:'Peserta123!',role:'student',joinedAt:Date.now()-86400000*30,status:'active',
-      enrolled:[{courseId:'k1',progress:65,completedModules:[]},{courseId:'k5',progress:100,completedModules:[]},{courseId:'k7',progress:25,completedModules:[]}],
-      wishlist:['k3','k10']},
-    ...students,
-  ];
-
-  // Transaksi
-  const transactions=[];
-  for(let i=0;i<35;i++){
-    const u = users[2+Math.floor(Math.random()*50)];
-    const c = courses[Math.floor(Math.random()*courses.length)];
-    transactions.push({
-      id:'TRX'+(100000+i),
-      userId:u.id, userName:u.name,
-      courseId:c.id, courseTitle:c.title,
-      amount:c.price,
-      gateway:['midtrans','xendit','stripe','paypal'][i%4],
-      status:['success','success','success','pending','failed'][i%5],
-      createdAt: Date.now()-Math.floor(Math.random()*60)*86400000,
-    });
-  }
-
-  const reviews=[
-    {id:uid('rv'),courseId:'k1',userId:'student0',userName:'Peserta Demo',rating:5,text:'Materi sangat lengkap, instruktur ramah!',createdAt:Date.now()-86400000*3,approved:true},
-    {id:uid('rv'),courseId:'k5',userId:'u3',userName:'Citra Wijaya',rating:4,text:'Cocok untuk pemula, banyak praktik.',createdAt:Date.now()-86400000*10,approved:true},
-    {id:uid('rv'),courseId:'k1',userId:'u7',userName:'Galih Santoso',rating:5,text:'Worth it banget!',createdAt:Date.now()-86400000*7,approved:false},
-  ];
-
-  const coupons=[
-    {id:uid('cp'),code:'WELCOME10',type:'percent',value:10,expiry:Date.now()+86400000*60,active:true},
-    {id:uid('cp'),code:'HEMAT50K',type:'nominal',value:50000,expiry:Date.now()+86400000*30,active:true},
-    {id:uid('cp'),code:'NEWUSER',type:'percent',value:25,expiry:Date.now()+86400000*14,active:true},
-  ];
-
-  const threads=[
-    {id:uid('th'),courseId:'k1',userId:'student0',userName:'Peserta Demo',title:'Cara optimasi SEO on-page?',body:'Mohon penjelasan lebih detail tentang strategi keyword.',replies:[
-      {userId:'i1',userName:'Andi Pratama (Instruktur)',body:'Mulai dari riset kata kunci dengan tools seperti Ahrefs.',likes:3,createdAt:Date.now()-86400000},
-    ],likes:5,createdAt:Date.now()-86400000*2},
-  ];
-
-  const settings={
-    general:{name:'EduFlow LMS', tagline:'Belajar Tanpa Batas', logo:'🎓'},
-    seo:{title:'EduFlow LMS - Platform Kursus Online',desc:'Belajar skill digital dari para ahli.'},
-    payment:{midtransKey:'SB-Mid-server-XXXXXXX',xenditKey:'xnd_demo_key',stripeKey:'pk_test_demo',paypalKey:'demo_paypal'},
-    smtp:{host:'smtp.gmail.com',port:587,user:'noreply@lms.com'},
-    security:{sessionTimeout:60,minPwLen:8},
+/* ============================================================
+ * BOOTSTRAP — TANPA DEMO/DUMMY
+ * Semua data nyata berada di BACKEND (Spreadsheet + Drive).
+ * Frontend hanya menyiapkan struktur minimal agar UI tidak error
+ * sebelum data pertama ditarik dari server (syncPull).
+ *  - Tidak ada user palsu, kursus contoh, transaksi, review, dll.
+ *  - Saat backend aktif: kosongkan cache lokal lalu tarik dari server.
+ *  - Tanpa backend: aplikasi tetap render namun kosong; login butuh server.
+ * ============================================================ */
+const EMPTY_COLLECTIONS = [
+  'users','courses','categories','instructors','transactions','coupons',
+  'reviews','threads','calendar','notifications','affiliates','memberships',
+  'broadcasts','materials','certificates'
+];
+function defaultSettings(){
+  return {
+    general:{ name:'EduFlow LMS', tagline:'Belajar Tanpa Batas', logo:'🎓' },
+    seo:{ title:'EduFlow LMS', desc:'Platform kursus online.' },
+    security:{ sessionTimeout:60, minPwLen:8 },
   };
-
-  const calendar=[
-    {id:uid('ev'),title:'Live Session: SEO Mastery',date:Date.now()+86400000*2,courseId:'k2'},
-    {id:uid('ev'),title:'Deadline Assignment Digital Marketing',date:Date.now()+86400000*5,courseId:'k1'},
-    {id:uid('ev'),title:'Webinar AI Trends 2026',date:Date.now()+86400000*10,courseId:'k10'},
-  ];
-
-  const notifications=[
-    {id:uid('n'),userId:'student0',title:'Selamat datang!',body:'Mulai perjalanan belajar Anda',read:false,createdAt:Date.now()-86400000},
-    {id:uid('n'),userId:'student0',title:'Kursus baru tersedia',body:'AI Automation kini tersedia',read:false,createdAt:Date.now()-3600000},
-  ];
-
-  const data = {
-    seeded:true, categories, instructors, courses, users, transactions, reviews, coupons, threads, settings, calendar, notifications,
-    affiliates:[{id:'student0',code:'PESERTA-REF',clicks:42,signups:5,earnings:250000}],
-    memberships:[
-      {id:'free',name:'Free',price:0,features:['3 kursus gratis','Akses komunitas','Tidak ada sertifikat']},
-      {id:'basic',name:'Basic',price:99000,features:['10 kursus/bulan','Forum support','Sertifikat dasar']},
-      {id:'premium',name:'Premium',price:299000,features:['Semua kursus','Live session','Sertifikat premium','Mentor 1-on-1']},
-      {id:'ent',name:'Enterprise',price:1499000,features:['Tim 10 user','SSO','Custom branding','Dedicated support']},
-    ],
-    broadcasts:[],
-    cart: {},
-  };
-  Object.entries(data).forEach(([k,v])=>DB.set(k,v));
 }
-seed();
+function bootstrap(){
+  // Struktur minimal — hanya dibuat bila key belum ada, TIDAK menimpa cache server.
+  EMPTY_COLLECTIONS.forEach(k=>{ if(DB.get(k)===null || DB.get(k)===undefined) DB.set(k, []); });
+  if(DB.get('settings')===null || DB.get('settings')===undefined) DB.set('settings', defaultSettings());
+  if(DB.get('cart')===null || DB.get('cart')===undefined) DB.set('cart', {});
+  // Tandai bahwa tidak ada lagi proses seeding demo.
+  DB.set('seeded', true);
+}
+bootstrap();
 
 /* ---------------- STATE ---------------- */
 const state = {
@@ -782,25 +665,17 @@ async function login(email, password, remember){
     if (r && !r.offline) return {ok:false,msg:'Email atau password salah'};
     // r.offline === true → server tak terjangkau, jatuh ke verifikasi lokal di bawah
   }
-  // Fallback lokal (mode demo / offline)
+  // Fallback lokal (hanya bila backend tak terjangkau). Tidak ada akun demo lokal lagi.
   const users = DB.get('users',[]);
   let u = users.find(x=>x.email.toLowerCase()===email.toLowerCase() && x.password===password);
-  if(!u){
-    const ins = DB.get('instructors',[]).find(x=>x.email.toLowerCase()===email.toLowerCase());
-    if(ins){
-      const pw = ins.password || 'Instruktur123!';
-      if(password === pw){
-        u = { id:ins.id, name:ins.name, email:ins.email, role:'instructor', status:'active',
-              expertise:ins.expertise||'', bio:ins.bio||'', permissions:ins.permissions||{}, joinedAt:ins.joinedAt||Date.now() };
-      }
-    }
-  }
   if(u){
     if(u.status==='inactive') return {ok:false,msg:'Akun dinonaktifkan'};
     session.set({userId:u.id, loginAt:Date.now(), remember:!!remember});
     state.user = u;
     return {ok:true};
   }
+  // Tanpa backend tidak ada akun lokal (demo sudah dihapus) → arahkan ke konfigurasi server.
+  if(!API_ENABLED()) return {ok:false,msg:'Server belum dikonfigurasi (GAS_URL). Semua akun & data tersimpan di backend.'};
   return {ok:false,msg:'Email atau password salah'};
 }
 function logout(){ session.clear(); state.user=null; if($('#backdrop')) $('#backdrop').classList.remove('open'); render(); }
@@ -888,12 +763,6 @@ function loginForm(){
       <button class="btn primary full" type="submit">Masuk</button>
       <div class="divider">atau</div>
       <button class="btn ghost full" type="button" data-go="register">Buat akun baru</button>
-      ${DB.get('demoVisible',true)?`<div class="demo-creds" id="demoCreds">
-        <div class="flex justify-between items-center"><b>🔐 Akun Demo:</b><button type="button" class="btn sm ghost" onclick="hideDemoCreds()" title="Sembunyikan">✕</button></div>
-        Admin: <code>admin@lms.com</code> / <code>Admin123!</code><br>
-        Peserta: <code>peserta@lms.com</code> / <code>Peserta123!</code><br>
-        Instruktur: <code>andi@lms.com</code> / <code>Instruktur123!</code>
-      </div>`:''}
     </form>
   `;
 }
@@ -936,16 +805,6 @@ function togglePw(btn){
   inp.type = inp.type==='password'?'text':'password';
 }
 window.togglePw = togglePw;
-window.hideDemoCreds = ()=>{ DB.set('demoVisible',false); const d=document.getElementById('demoCreds'); if(d) d.remove(); toast('Akun demo disembunyikan. Bisa ditampilkan lagi dari Pengaturan admin.','info'); };
-window.toggleDemoVisible = ()=>{ DB.set('demoVisible', !DB.get('demoVisible',true)); toast('Visibilitas akun demo diperbarui','success'); if(typeof renderPage==='function') renderPage(); };
-window.removeDemoAccounts = ()=>confirmModal('Hapus semua akun demo (admin@lms.com, peserta@lms.com, dan instruktur demo)? Tindakan ini permanen di perangkat ini.',()=>{
-  const demoEmails=['admin@lms.com','peserta@lms.com','andi@lms.com','sari@lms.com','budi@lms.com','maya@lms.com','reza@lms.com'];
-  const us=DB.get('users',[]).filter(u=>!demoEmails.includes((u.email||'').toLowerCase()));
-  const ins=DB.get('instructors',[]).filter(i=>!demoEmails.includes((i.email||'').toLowerCase()));
-  DB.set('users',us); DB.set('instructors',ins); DB.set('demoVisible',false);
-  apiSync('syncPush',{users:us,instructors:ins});
-  toast('Akun demo dihapus','success'); if(typeof renderPage==='function') renderPage();
-});
 window.closeModal = closeModal;
 
 function bindAuth(mode){
@@ -1280,7 +1139,7 @@ function genLast7Days(trx){
     const d=new Date(); d.setDate(d.getDate()-i); d.setHours(0,0,0,0);
     const next=d.getTime()+86400000;
     const tot = trx.filter(t=>t.createdAt>=d.getTime()&&t.createdAt<next).reduce((a,t)=>a+t.amount,0);
-    days.push({label:['Min','Sen','Sel','Rab','Kam','Jum','Sab'][d.getDay()], v: tot||Math.floor(Math.random()*2000000)});
+    days.push({label:['Min','Sen','Sel','Rab','Kam','Jum','Sab'][d.getDay()], v: tot});
   }
   return days;
 }
@@ -1484,7 +1343,7 @@ function catForm(id){
 }
 
 /* ---- Modules (Full CRUD + sumber materi: upload / link / bank materi) ---- */
-const MOD_TYPE_ICON = { video:'🎬', pdf:'📄', audio:'🎵', quiz:'❓', assignment:'📝', text:'📰' };
+const MOD_TYPE_ICON = { video:'🎬', pdf:'📄', audio:'🎵', quiz:'❓', assignment:'📝', text:'📰', image:'🖼️', doc:'📃', slide:'📊', file:'📦' };
 const MOD_TYPE_LABEL = { video:'Video', pdf:'PDF', audio:'Audio', quiz:'Quiz', assignment:'Assignment', text:'Teks' };
 
 PAGES.modules = el => {
@@ -1697,7 +1556,7 @@ PAGES.materials = el => {
           <button class="btn primary" id="upMat">+ Upload Materi</button>
         </div>
       </div>
-      <div class="tabs">${['all','pdf','video','audio'].map(t=>`<button data-t="${t}" class="${filter===t?'active':''}">${t==='all'?'Semua':t.toUpperCase()}</button>`).join('')}</div>
+      <div class="tabs">${['all','pdf','video','audio','image','doc','slide','file'].map(t=>`<button data-t="${t}" class="${filter===t?'active':''}">${t==='all'?'Semua':t.toUpperCase()}</button>`).join('')}</div>
       <div class="grid-3" style="margin-top:12px">
         ${mats.length?mats.map(m=>`
           <div class="card">
@@ -1753,8 +1612,8 @@ function materialForm(id){
       <div class="field"><label>Judul Materi</label><input class="input" name="title" required value="${esc(m.title)}"/></div>
       <div class="field"><label>Deskripsi (opsional)</label><textarea class="textarea" name="description">${esc(m.description||'')}</textarea></div>
       ${id?`<div class="muted text-sm">File: <b>${(m.type||'').toUpperCase()}</b> · ${m.size?((m.size/1024/1024).toFixed(2)+' MB'):'-'} · <a href="${esc(m.viewUrl||m.url)}" target="_blank" style="color:var(--primary)">buka</a></div>`:`
-        <div class="field"><label>File (PDF / Video / Audio)</label>
-          <input class="input" type="file" id="matFile" accept=".pdf,video/*,audio/*" required/>
+        <div class="field"><label>File (PDF / Video / Audio / Gambar / Dokumen)</label>
+          <input class="input" type="file" id="matFile" accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.csv,video/*,audio/*,image/*" required/>
           <div class="muted text-sm" style="margin-top:4px">${API_ENABLED()?'Akan diupload ke Google Drive via GAS.':'⚠️ GAS_URL belum diset — file disimpan sebagai data URL di browser (maks 8MB).'}</div>
           <div id="matStatus" class="text-sm" style="margin-top:6px"></div>
         </div>
@@ -1774,16 +1633,23 @@ function materialForm(id){
     }
     const file = $('#matFile').files[0];
     if(!file){ toast('Pilih file dulu','danger'); return; }
+    const saveBtn = $('#matSave'); if(saveBtn) saveBtn.disabled = true;
     $('#matStatus').innerHTML = '<span style="color:var(--info)">⏳ Mengupload... 0%</span>';
-    const r = await uploadToDrive(file, {title, description:desc, onProgress:(p)=>{ const st=$('#matStatus'); if(st) st.innerHTML='<span style="color:var(--info)">⏳ Mengupload potongan besar... '+p+'%</span>'; }});
-    if(!r.ok){ $('#matStatus').innerHTML='<span style="color:var(--danger)">✕ '+esc(r.msg||'Gagal')+'</span>'; return; }
+    const r = await uploadToDrive(file, {title, description:desc, onProgress:(p)=>{ const st=$('#matStatus'); if(st) st.innerHTML='<span style="color:var(--info)">⏳ Mengupload... '+p+'%</span>'; }});
+    if(!r.ok){ if(saveBtn) saveBtn.disabled=false; $('#matStatus').innerHTML='<span style="color:var(--danger)">✕ '+esc(r.msg||'Gagal')+'</span>'; return; }
+    // Tambahkan optimistis ke cache lokal
     const arr = DB.get('materials',[]);
     const matId = r.data.materialId || ('mat_'+String(r.data.fileId||uid('f')).slice(0,10));
     if(!arr.some(m=>m.id===matId))
       arr.unshift({ id:matId, title, description:desc, type:r.data.type, fileId:r.data.fileId, url:r.data.url, viewUrl:r.data.viewUrl||r.data.url, size:r.data.size||file.size, mime:file.type, uploadedAt:Date.now(), source:r.data.fallback?'local':'upload', fallback:!!r.data.fallback });
     DB.set('materials', arr);
-    // saat backend live, server sudah punya record-nya (uploadFile menulis ke sheet) → tak perlu push ulang
-    if(!API_ENABLED()) apiSync('syncPush',{materials:arr});
+    if(API_ENABLED()){
+      // Tarik ulang dari server agar materi yang sudah tercatat di sheet pasti tampil (hindari race poll 15s).
+      $('#matStatus').innerHTML = '<span style="color:var(--info)">🔄 Menyinkron dari server...</span>';
+      try{ await pullFromBackend(true); }catch(e){}
+    } else {
+      apiSync('syncPush',{materials:arr});
+    }
     closeModal(); toast('Materi berhasil diupload','success'); renderPage();
   };
 }
@@ -3356,14 +3222,7 @@ PAGES.settings = el => {
           <div class="field"><label>Session Timeout (menit)</label><input class="input" type="number" name="sessionTimeout" min="5" value="${s.security.sessionTimeout}"/></div>
           <div class="field"><label>Minimal Panjang Password</label><input class="input" type="number" name="minPwLen" min="6" value="${s.security.minPwLen}"/></div>
           <button class="btn primary">Simpan</button>
-        </form>
-        <hr style="margin:14px 0;border:0;border-top:1px solid var(--border)"/>
-        <b>Akun Demo (Frontend)</b>
-        <p class="muted text-sm">Akun demo memudahkan uji coba. Anda dapat menyembunyikan tampilannya di halaman login atau menghapus akunnya kapan saja.</p>
-        <div class="flex gap-1 mt-2" style="flex-wrap:wrap">
-          <button type="button" class="btn sm" onclick="toggleDemoVisible()">${DB.get('demoVisible',true)?'🙈 Sembunyikan dari Login':'👁️ Tampilkan di Login'}</button>
-          <button type="button" class="btn sm danger" onclick="removeDemoAccounts()">🗑️ Hapus Semua Akun Demo</button>
-        </div>`,
+        </form>`,
       })[tab]}</div>
     `;
     el.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{tab=b.dataset.t;draw();});
@@ -4204,16 +4063,13 @@ function render(){
   if(checkLogin()){ renderApp(); bootSync(); }
   else renderAuth('login');
 }
-// Sinkronisasi 2 arah dengan Spreadsheet/Drive (termasuk perubahan manual di backend).
+// Sinkronisasi dari Spreadsheet/Drive. Data HANYA berada di backend — frontend tidak pernah
+// mengunggah data awal (tidak ada lagi seed/demo lokal). Selalu tarik dari server.
 function bootSync(){
   if(!API_ENABLED() || _syncedThisSession) return;
   _syncedThisSession=true;
   apiFetch('syncPull',{},{retries:1}).then(r=>{
-    const serverHasCourses = r && r.ok && r.data && Array.isArray(r.data.courses) && r.data.courses.length;
-    if(r && r.ok && r.data){
-      if(!serverHasCourses){ pushToBackend().then(()=>{ if(state.user) renderPage(); }); } // backend kosong → unggah data awal sekali
-      else { _applyPull(r); if(state.user) renderPage(); }
-    }
+    if(r && r.ok && r.data){ _applyPull(r); if(state.user) renderPage(); }
     if(!_syncTimer) _syncTimer=setInterval(()=>{
       if(!state.user) return;
       apiFetch('syncPull',{},{retries:1}).then(rr=>{ if(rr&&rr.ok&&rr.data){ _applyPull(rr); state.user?renderPage():render(); } });
