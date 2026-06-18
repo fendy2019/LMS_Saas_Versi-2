@@ -319,7 +319,7 @@ const authToken = {
  * Ganti GAS_URL dengan URL Web App deploy GAS Anda.
  * apiFetch(action,payload) = async wrapper + retry exponential backoff (max 3x)
  * ============================================================ */
-const GAS_URL = "https://script.google.com/macros/s/AKfycbwXMX4KYAQpQskCCnSGy_2HEbEN5-Pe8tk0fBZnbJxk3g0s4UBh-6syUWiYv92SgmKqSw/exec"; // <-- paste URL Web App GAS di sini
+const GAS_URL = "https://script.google.com/macros/s/AKfycbypeOnNsoW9wH-2IddBHjWp0MBGQABylcl-AHuEMfSSDxA9ZNds1JIfo5kHOMLc8QWvCQ/exec"; // <-- paste URL Web App GAS di sini
 const HMAC_SECRET = "1"; // <-- samakan dengan Script Properties HMAC_SECRET di GAS
 const API_ENABLED = () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
 
@@ -763,10 +763,28 @@ function checkLogin(){
 }
 
 async function login(email, password, remember){
-  // 1) Verifikasi lokal (akun demo / mode offline)
+  // KEAMANAN: bila backend aktif, SERVER adalah otoritas verifikasi password (PBKDF2 di server).
+  // Verifikasi lokal hanya dipakai sebagai fallback offline / mode demo tanpa backend.
+  if (API_ENABLED()){
+    const r = await apiFetch('login',{email,password});
+    if (r && r.ok && r.user){
+      if (r.token) authToken.set(r.token);   // simpan JWT utk request terautentikasi berikutnya
+      const us = DB.get('users',[]); const ix = us.findIndex(x=>x.id===r.user.id);
+      // simpan profil tanpa password (server tidak mengirim hash; jangan pernah simpan plaintext)
+      const safe = {...r.user, serverAuth:true}; delete safe.password;
+      if (ix>=0) us[ix] = {...us[ix], ...safe, password:undefined}; else us.push(safe);
+      DB.set('users',us);
+      session.set({userId:r.user.id, loginAt:Date.now(), remember:!!remember});
+      state.user = us.find(x=>x.id===r.user.id);
+      return {ok:true};
+    }
+    if (r && r.msg && !r.offline) return {ok:false,msg:r.msg};
+    if (r && !r.offline) return {ok:false,msg:'Email atau password salah'};
+    // r.offline === true → server tak terjangkau, jatuh ke verifikasi lokal di bawah
+  }
+  // Fallback lokal (mode demo / offline)
   const users = DB.get('users',[]);
   let u = users.find(x=>x.email.toLowerCase()===email.toLowerCase() && x.password===password);
-  // Login Instruktur dari DB.instructors
   if(!u){
     const ins = DB.get('instructors',[]).find(x=>x.email.toLowerCase()===email.toLowerCase());
     if(ins){
@@ -783,32 +801,29 @@ async function login(email, password, remember){
     state.user = u;
     return {ok:true};
   }
-  // 2) Verifikasi ke server (akun yang hanya ada di backend, mis. akun default admin/instruktur/peserta)
-  if (API_ENABLED()){
-    const r = await apiFetch('login',{email,password});
-    if (r && r.ok && r.user){
-      if (r.token) authToken.set(r.token);   // simpan JWT utk request terautentikasi berikutnya
-      const us = DB.get('users',[]); const ix = us.findIndex(x=>x.id===r.user.id);
-      if (ix>=0) us[ix] = {...us[ix], ...r.user, serverAuth:true}; else us.push({...r.user, serverAuth:true});
-      DB.set('users',us);
-      session.set({userId:r.user.id, loginAt:Date.now(), remember:!!remember});
-      state.user = us.find(x=>x.id===r.user.id);
-      return {ok:true};
-    }
-    if (r && r.msg && !r.offline) return {ok:false,msg:r.msg};
-  }
   return {ok:false,msg:'Email atau password salah'};
 }
 function logout(){ session.clear(); state.user=null; if($('#backdrop')) $('#backdrop').classList.remove('open'); render(); }
-function register(data){
-  const users = DB.get('users',[]);
-  if(users.some(u=>u.email.toLowerCase()===data.email.toLowerCase())) return {ok:false,msg:'Email sudah terdaftar'};
+async function register(data){
   const minLen = DB.get('settings').security?.minPwLen||8;
   if(data.password.length < minLen) return {ok:false,msg:`Password minimal ${minLen} karakter`};
+  // KEAMANAN: bila backend aktif, SERVER yang membuat akun (hash password, cek duplikasi, set role).
+  if (API_ENABLED()){
+    const r = await apiFetch('register',{name:data.name,email:data.email,password:data.password});
+    if (r && r.ok && r.user){
+      if (r.token) authToken.set(r.token);
+      const us=DB.get('users',[]); const safe={...r.user}; delete safe.password;
+      if(!us.some(x=>x.id===safe.id)) us.push(safe); DB.set('users',us);
+      return {ok:true,user:safe};
+    }
+    if (r && r.msg && !r.offline) return {ok:false,msg:r.msg};
+    if (r && !r.offline) return {ok:false,msg:'Registrasi gagal'};
+    // offline → fallback lokal
+  }
+  const users = DB.get('users',[]);
+  if(users.some(u=>u.email.toLowerCase()===data.email.toLowerCase())) return {ok:false,msg:'Email sudah terdaftar'};
   const nu = {id:uid('u'),name:data.name,email:data.email,password:data.password,role:'student',joinedAt:Date.now(),status:'active',enrolled:[],wishlist:[]};
   users.push(nu); DB.set('users',users);
-  // simpan juga ke backend (server akan hash password & cek duplikasi)
-  apiSync('register',{name:data.name,email:data.email,password:data.password});
   return {ok:true,user:nu};
 }
 
@@ -953,7 +968,7 @@ function bindAuth(mode){
       render();
     };
   } else if(mode==='register'){
-    $('#regForm').onsubmit = e=>{
+    $('#regForm').onsubmit = async e=>{
       e.preventDefault();
       const f = e.target;
       let ok=true;
@@ -963,7 +978,7 @@ function bindAuth(mode){
       showErr('password', f.password.value.length<8?'Minimal 8 karakter':'');
       showErr('tos', !f.tos.checked?'Wajib disetujui':'');
       if(!ok) return;
-      const r = register({name:f.name.value.trim(),email:f.email.value.trim(),password:f.password.value});
+      const r = await register({name:f.name.value.trim(),email:f.email.value.trim(),password:f.password.value});
       if(!r.ok){ toast(r.msg,'danger'); return; }
       toast('Pendaftaran berhasil! Silakan masuk.','success');
       renderAuth('login');
@@ -3700,7 +3715,19 @@ function setupVideo(){
   $('#fs').onclick=()=>{if(!document.fullscreenElement)vp.requestFullscreen?.();else document.exitFullscreen?.();};
 }
 function fmtTime(s){s=Math.floor(s);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');}
-window.markComplete = (cid,mid,silent)=>{
+window.markComplete = async (cid,mid,silent)=>{
+  // KEAMANAN: saat backend aktif, SERVER menyimpan & menghitung progress (cek enrolment).
+  if (API_ENABLED()){
+    const r = await apiFetch('markProgress',{ courseId:cid, moduleId:mid, complete:true });
+    if (r && r.ok && r.data){
+      const us=DB.get('users',[]); const ix=us.findIndex(x=>x.id===state.user.id);
+      if(ix>=0){ const en=(us[ix].enrolled||[]).find(e=>e.courseId===cid);
+        if(en){ en.completedModules=r.data.completedModules; en.progress=r.data.progress; DB.set('users',us); state.user=us[ix]; } }
+      if(!silent) toast('Modul ditandai selesai','success');
+    } else if(r && r.msg && !r.offline){ if(!silent) toast(r.msg,'danger'); }
+    return;
+  }
+  // Fallback lokal (mode demo)
   const us=DB.get('users',[]); const ix=us.findIndex(x=>x.id===state.user.id);
   let en = us[ix].enrolled.find(e=>e.courseId===cid);
   if(!en){en={courseId:cid,progress:0,completedModules:[]};us[ix].enrolled.push(en);}
@@ -3711,7 +3738,7 @@ window.markComplete = (cid,mid,silent)=>{
   DB.set('users',us); state.user=us[ix];
   if(!silent) toast('Modul ditandai selesai','success');
 };
-window.finishCourse = (cid)=>{
+window.finishCourse = async (cid)=>{
   const us=DB.get('users',[]); const ix=us.findIndex(x=>x.id===state.user.id);
   const c = DB.get('courses',[]).find(x=>x.id===cid);
   let en = us[ix].enrolled.find(e=>e.courseId===cid);
@@ -3720,12 +3747,22 @@ window.finishCourse = (cid)=>{
     en.progress = 100;
     en.completedAt = en.completedAt || Date.now();
     DB.set('users',us); state.user=us[ix];
-    // Auto-issue certificate if enabled
+    // KEAMANAN: pastikan SERVER mencatat progress 100% sebelum menerbitkan sertifikat
+    try{ if(API_ENABLED()) await apiFetch('markProgress',{ courseId:cid, finishAll:true }); }catch(e){}
+    // Auto-issue certificate — server-authoritative bila backend aktif
     try{
-      const certs = DB.get('certificates',[]);
-      if(!certs.some(ct=>ct.userId===us[ix].id && ct.courseId===cid)){
-        certs.push({id:uid('ct'),userId:us[ix].id,userName:us[ix].name,courseId:cid,courseTitle:c.title,issuedAt:Date.now(),number:'CERT-'+Date.now().toString(36).toUpperCase()});
-        DB.set('certificates',certs); apiSync&&apiSync('syncPush',{certificates:certs});
+      if (API_ENABLED()){
+        const r = await apiFetch('issueCertificate',{ courseId:cid });
+        if(r && r.ok && r.data && r.data.certificate){
+          const certs=DB.get('certificates',[]);
+          if(!certs.some(ct=>ct.id===r.data.certificate.id)){ certs.push(r.data.certificate); DB.set('certificates',certs); }
+        }
+      } else {
+        const certs = DB.get('certificates',[]);
+        if(!certs.some(ct=>ct.userId===us[ix].id && ct.courseId===cid)){
+          certs.push({id:uid('ct'),userId:us[ix].id,userName:us[ix].name,courseId:cid,courseTitle:c.title,issuedAt:Date.now(),number:'CERT-'+Date.now().toString(36).toUpperCase()});
+          DB.set('certificates',certs);
+        }
       }
     }catch(e){}
   }
@@ -3745,19 +3782,44 @@ function renderQuiz(cid,m){
   </div>
   <script>(()=>{
     const m = ${JSON.stringify(m)};
+    const CID=${JSON.stringify(cid)}, MID=${JSON.stringify(m.id)};
+    const API = (typeof API_ENABLED==='function' && API_ENABLED());
     let i=0, score=0, time=600, intv;
+    const answers={};                                  // {index: jawaban user} → dikirim ke server
+    const hasKey = m.questions.some(q=>q && (q.a!==undefined||q.correct!==undefined||q.correctAnswer!==undefined));
     const body=document.getElementById('qzBody'), tmr=document.getElementById('tmr');
-    function draw(){
-      if(i>=m.questions.length){
-        clearInterval(intv);
-        body.innerHTML='<div class="empty"><div style="font-size:60px">'+(score>=m.questions.length*0.6?'🏆':'😅')+'</div><b class="text-2xl">Skor: '+score+'/'+m.questions.length+'</b><p>'+(score>=m.questions.length*0.6?'Selamat, Anda lulus!':'Coba lagi ya')+'</p><button class="btn primary mt-2" onclick="markComplete(\\''+'${cid}'+'\\',\\''+'${m.id}'+'\\');closeModal();">Selesai</button></div>';
+    async function finish(){
+      clearInterval(intv);
+      // Bila backend aktif: SERVER yang menilai (kunci jawaban tak ada di klien)
+      if (API && typeof apiFetch==='function'){
+        body.innerHTML='<div class="empty"><div style="font-size:50px">⏳</div><b>Menilai jawaban...</b></div>';
+        try{
+          const r = await apiFetch('gradeQuiz',{ courseId:CID, moduleId:MID, answers });
+          if (r && r.ok && r.data){
+            const d=r.data;
+            const emoji = d.needsManual?'📝':(d.passed?'🏆':'😅');
+            const msg = d.needsManual?'Jawaban dikirim, menunggu penilaian instruktur.':(d.passed?'Selamat, Anda lulus!':'Belum lulus, coba lagi ya');
+            body.innerHTML='<div class="empty"><div style="font-size:60px">'+emoji+'</div><b class="text-2xl">'+(d.needsManual?'Terkirim':('Skor: '+d.score+'%'))+'</b><p>'+msg+'</p><button class="btn primary mt-2" onclick="markComplete(\\''+CID+'\\',\\''+MID+'\\');closeModal();">Selesai</button></div>';
+            return;
+          }
+          body.innerHTML='<div class="empty"><div style="font-size:50px">⚠️</div><b>Gagal menilai</b><p>'+((r&&r.msg)||'Coba lagi')+'</p><button class="btn primary mt-2" onclick="closeModal()">Tutup</button></div>';
+        }catch(e){ body.innerHTML='<div class="empty"><b>Gagal terhubung</b><button class="btn primary mt-2" onclick="closeModal()">Tutup</button></div>'; }
         return;
       }
+      // Mode demo/lokal: nilai di klien (seperti sebelumnya)
+      body.innerHTML='<div class="empty"><div style="font-size:60px">'+(score>=m.questions.length*0.6?'🏆':'😅')+'</div><b class="text-2xl">Skor: '+score+'/'+m.questions.length+'</b><p>'+(score>=m.questions.length*0.6?'Selamat, Anda lulus!':'Coba lagi ya')+'</p><button class="btn primary mt-2" onclick="markComplete(\\''+CID+'\\',\\''+MID+'\\');closeModal();">Selesai</button></div>';
+    }
+    function draw(){
+      if(i>=m.questions.length){ finish(); return; }
       const q=m.questions[i];
       body.innerHTML='<div class="card"><b>'+(i+1)+'. '+q.q+'</b><div class="mt-2">'+q.opts.map((o,j)=>'<button class="btn ghost full mt-1" data-j="'+j+'" style="text-align:left;justify-content:flex-start">'+(j+1)+'. '+o+'</button>').join('')+'</div></div>';
       body.querySelectorAll('[data-j]').forEach(b=>b.onclick=()=>{
-        if(+b.dataset.j===q.a){score++;b.style.background='rgba(16,185,129,.2)';}else{b.style.background='rgba(239,68,68,.2)';}
-        setTimeout(()=>{i++;draw();},600);
+        const j=+b.dataset.j;
+        answers[i]=j;                                  // rekam jawaban utk dikirim ke server
+        if(hasKey){                                    // feedback warna hanya bila kunci tersedia (mode lokal)
+          if(j===q.a){score++;b.style.background='rgba(16,185,129,.2)';}else{b.style.background='rgba(239,68,68,.2)';}
+        } else { b.style.background='rgba(99,102,241,.18)'; }
+        setTimeout(()=>{i++;draw();},500);
       });
     }
     intv=setInterval(()=>{time--;if(time<=0){clearInterval(intv);i=m.questions.length;draw();}tmr.textContent=Math.floor(time/60)+':'+String(time%60).padStart(2,'0');},1000);
@@ -4010,12 +4072,23 @@ function checkout(items, total){
           </div>`;
       modal({title:`Pembayaran via ${esc(method.name)}`, size:'md', body,
         foot:`<button class="btn ghost" onclick="closeModal()">Tutup</button><button class="btn primary" id="confBtn">✓ Saya Sudah Bayar / Transfer</button>`});
-      $('#confBtn').onclick = ()=>{
+      $('#confBtn').onclick = async ()=>{
+        if (API_ENABLED()){
+          // SERVER membuat transaksi: nominal & status ditentukan server (status=pending)
+          const r = await apiFetch('createTransaction', { courseIds: items.map(c=>c.id), gateway: gw });
+          if (!r || !r.ok){ toast((r&&r.msg)||'Gagal membuat transaksi','danger'); return; }
+          state.cart={}; DB.set('cart',{});
+          closeModal();
+          toast('Konfirmasi pembayaran dikirim. Menunggu verifikasi admin.','success');
+          await pullFromBackend(true); state.route='mytrx'; render();
+          return;
+        }
+        // Fallback lokal (mode demo tanpa backend)
         const trx = DB.get('transactions',[]);
         items.forEach(c=>{
           trx.unshift({id:'TRX'+Date.now()+Math.floor(Math.random()*1000),userId:state.user.id,userName:state.user.name,courseId:c.id,courseTitle:c.title,amount:c.price,gateway:gw,status:'pending',createdAt:Date.now()});
         });
-        DB.set('transactions',trx); apiSync('syncPush',{transactions:trx});
+        DB.set('transactions',trx);
         state.cart={}; DB.set('cart',{});
         closeModal();
         toast('Konfirmasi pembayaran dikirim. Menunggu verifikasi admin.','success');
@@ -4026,14 +4099,21 @@ function checkout(items, total){
 
     // Flow AUTO gateway
     modal({title:'Memproses Pembayaran...',body:`<div class="center" style="padding:30px"><div style="font-size:50px;animation:spin 1s infinite linear">⏳</div><b>Menghubungkan ke ${esc(method.name)}</b><style>@keyframes spin{to{transform:rotate(360deg)}}</style></div>`,foot:''});
-    let serverTotal = total;
     if (API_ENABLED()){
-      const r = await apiFetch('checkout',{
-        userId: state.user.id, courseIds: items.map(c=>c.id), gateway: gw,
-        couponCode: (typeof couponCode!=='undefined'?couponCode:'') || ''
-      });
-      if (r && r.ok) serverTotal = r.total;
+      // SERVER otoritas: hitung total resmi + buat transaksi (status pending, nominal dari server).
+      // Akses kursus diberikan HANYA setelah confirmPayment (admin/gateway) — bukan oleh klien.
+      const co = await apiFetch('checkout',{ courseIds: items.map(c=>c.id), gateway: gw,
+        couponCode: (typeof couponCode!=='undefined'?couponCode:'') || '' });
+      const serverTotal = (co && co.ok) ? co.total : total;
+      const r = await apiFetch('createTransaction',{ courseIds: items.map(c=>c.id), gateway: gw });
+      closeModal();
+      if (!r || !r.ok){ toast((r&&r.msg)||'Gagal memproses pembayaran','danger'); return; }
+      state.cart={}; DB.set('cart',{});
+      toast(`Pesanan dibuat (Total ${fmtRp(serverTotal)}). Menunggu verifikasi pembayaran. 🎉`,'success');
+      await pullFromBackend(true); state.route='mytrx'; render();
+      return;
     }
+    // Fallback lokal (mode demo tanpa backend) — simulasi sukses instan
     setTimeout(()=>{
       closeModal();
       const us=DB.get('users',[]); const ix=us.findIndex(x=>x.id===state.user.id);
@@ -4044,7 +4124,7 @@ function checkout(items, total){
       });
       DB.set('users',us); DB.set('transactions',trx); state.user=us[ix];
       state.cart={}; DB.set('cart',{});
-      toast(`Pembayaran berhasil! Total ${fmtRp(serverTotal)} 🎉`,'success');
+      toast(`Pembayaran berhasil! Total ${fmtRp(total)} 🎉`,'success');
       state.route='mycourses'; render();
     },1500);
   };
