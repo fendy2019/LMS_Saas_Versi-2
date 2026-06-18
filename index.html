@@ -2462,45 +2462,20 @@ PAGES.transactions = el => {
         ${['all','success','pending','failed'].map(s=>`<button data-f="${s}" class="${filter===s?'active':''}">${s==='all'?'Semua':s.charAt(0).toUpperCase()+s.slice(1)}</button>`).join('')}
       </div>
       <div class="table-wrap"><table class="table">
-        <thead><tr><th>ID</th><th>Peserta</th><th>Kursus</th><th>Gateway</th><th>Jumlah</th><th>Status</th><th>Tanggal</th><th>Aksi</th></tr></thead>
+        <thead><tr><th>ID</th><th>Peserta</th><th>Kursus</th><th>Gateway</th><th>Jumlah</th><th>Status</th><th>Tanggal</th><th></th></tr></thead>
         <tbody>${data.map(t=>`
           <tr><td><code style="font-size:11px">${t.id}</code></td><td>${esc(t.userName)}</td><td>${esc(t.courseTitle)}</td><td><span class="badge">${t.gateway}</span></td><td><b>${fmtRp(t.amount)}</b></td>
-          <td><span class="badge ${t.status==='success'?'success':t.status==='pending'?'warn':t.status==='refund'?'info':'danger'}">${t.status}</span></td>
+          <td><span class="badge ${t.status==='success'?'success':t.status==='pending'?'warn':'danger'}">${t.status}</span></td>
           <td>${fmtDate(t.createdAt)}</td>
-          <td>
-            ${t.status==='pending'?'<button class="btn sm primary" data-ap="'+t.id+'">Approve</button>':''}
-            ${t.status==='success'?'<button class="btn sm danger" data-rf="'+t.id+'">Refund</button>':''}
-          </td></tr>
+          <td>${t.status==='success'?'<button class="btn sm ghost" data-rf="'+t.id+'">Refund</button>':''}</td></tr>
         `).join('')}</tbody>
       </table></div>
     `;
     el.querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{filter=b.dataset.f;render();});
-    el.querySelectorAll('[data-ap]').forEach(b=>b.onclick=()=>{
-      const ts=DB.get('transactions',[]); const ix=ts.findIndex(x=>x.id===b.dataset.ap);
-      if(ix>=0) {
-        ts[ix].status='success'; DB.set('transactions',ts); toast('Transaksi di-approve','success'); render();
-      }
-    });
-    el.querySelectorAll('[data-rf]').forEach(b=>b.onclick=()=>{
-      modal({
-        title: 'Verifikasi Refund',
-        body: `<p>Masukkan password admin Anda untuk memproses pengembalian uang:</p>
-               <input type="password" class="input mt-2" id="rfPw" placeholder="Password verifikasi" />`,
-        foot: `<button class="btn ghost" onclick="closeModal()">Batal</button>
-               <button class="btn danger" id="btnRfConfirm">Konfirmasi Refund</button>`
-      });
-      $('#btnRfConfirm').onclick = () => {
-        if ($('#rfPw').value === state.user.password) {
-          const ts=DB.get('transactions',[]); const ix=ts.findIndex(x=>x.id===b.dataset.rf);
-          if(ix>=0) {
-            ts[ix].status='refund'; DB.set('transactions',ts); toast('Refund berhasil, uang kursus kembali ke peserta','success'); render();
-          }
-          closeModal();
-        } else {
-          toast('Password salah, status tidak berubah','danger');
-        }
-      };
-    });
+    el.querySelectorAll('[data-rf]').forEach(b=>b.onclick=()=>confirmModal('Proses refund?',()=>{
+      const ts=DB.get('transactions',[]); const ix=ts.findIndex(x=>x.id===b.dataset.rf);
+      ts[ix].status='refund'; DB.set('transactions',ts); toast('Refund diproses','success'); render();
+    }));
   };
   render();
 };
