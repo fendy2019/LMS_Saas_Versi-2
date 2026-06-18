@@ -319,7 +319,7 @@ const authToken = {
  * Ganti GAS_URL dengan URL Web App deploy GAS Anda.
  * apiFetch(action,payload) = async wrapper + retry exponential backoff (max 3x)
  * ============================================================ */
-const GAS_URL = "https://script.google.com/macros/s/AKfycbwKcGhYS5XNy5O_lw4n3W09ixpm4Plh_7F4RN5zduz8Tb6wO82XEizjbsStOSNIGYK-/exec"; // <-- paste URL Web App GAS di sini
+const GAS_URL = "https://script.google.com/macros/s/AKfycbwXMX4KYAQpQskCCnSGy_2HEbEN5-Pe8tk0fBZnbJxk3g0s4UBh-6syUWiYv92SgmKqSw/exec"; // <-- paste URL Web App GAS di sini
 const HMAC_SECRET = "1"; // <-- samakan dengan Script Properties HMAC_SECRET di GAS
 const API_ENABLED = () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
 
@@ -450,6 +450,8 @@ async function deleteFromDrive(fileId){
 }
 
 // 2-way sync: tarik data dari sheet ke localStorage (panggil di startup setelah login)
+// SERVER AUTHORITATIVE: bila backend "live", state server selalu menang —
+// termasuk koleksi yang dikosongkan (hasil hapus manual di Spreadsheet/Drive).
 function _applyPull(r){
   if(!(r && r.ok && r.data)) return;
   const map = {
@@ -458,13 +460,23 @@ function _applyPull(r){
     calendar:'calendar', notifications:'notifications', affiliates:'affiliates',
     memberships:'memberships', broadcasts:'broadcasts', materials:'materials', certificates:'certificates'
   };
-  // Jika backend "live" (sudah ada user), percayai server penuh termasuk koleksi kosong (hapus manual tampil).
+  // backend dianggap "live" jika ada minimal 1 user di server
   const live = Array.isArray(r.data.users) && r.data.users.length>0;
   Object.entries(map).forEach(([k,sk])=>{
-    if (Array.isArray(r.data[k]) && (r.data[k].length || live)) DB.set(sk, r.data[k]);
+    if (Array.isArray(r.data[k])){
+      // saat live: selalu timpa (termasuk array kosong → hapus lokal). saat belum live: hanya bila ada isi.
+      if (live || r.data[k].length) DB.set(sk, r.data[k]);
+    }
   });
   ['settings','certTemplate','paymentSettings'].forEach(k=>{ if(r.data[k]) DB.set(k, r.data[k]); });
-  if(state.user){ const fresh=DB.get('users',[]).find(x=>x.id===state.user.id); if(fresh) state.user={...state.user,...fresh}; }
+  if(state.user){
+    const fresh=DB.get('users',[]).find(x=>x.id===state.user.id);
+    if(fresh) state.user={...state.user,...fresh};
+    else if(live){ // user dihapus manual di backend → paksa logout
+      toast('Akun Anda tidak lagi terdaftar di server. Silakan login ulang.','warn');
+      session.clear(); authToken.clear(); state.user=null;
+    }
+  }
 }
 async function pullFromBackend(silent){
   const r = await apiFetch('syncPull', {}, {retries:1});
@@ -1597,10 +1609,11 @@ function moduleForm(cid, mid){
         const r = await uploadToDrive(file, {title, description: f.content.value});
         if(!r.ok){ $('#upStatus').innerHTML = '<span style="color:var(--danger)">✕ '+esc(r.msg||'Gagal')+'</span>'; return; }
         url = r.data.viewUrl || r.data.url; fileId = r.data.fileId;
-        // simpan ke Bank Materi
+        // simpan ke Bank Materi — pakai id dari server bila ada agar konsisten saat sync authoritative
         const mats = DB.get('materials',[]);
-        const mat = { id: uid('mat'), title, type: r.data.type, fileId, url: r.data.url, viewUrl: r.data.viewUrl||r.data.url, size: r.data.size||file.size, mime: file.type, uploadedAt: Date.now(), description: f.content.value||'', fallback: !!r.data.fallback };
-        mats.unshift(mat); DB.set('materials', mats); materialId = mat.id;
+        const matId = r.data.materialId || ('mat_'+String(fileId||uid('f')).slice(0,10));
+        const mat = { id: matId, title, type: r.data.type, fileId, url: r.data.url, viewUrl: r.data.viewUrl||r.data.url, size: r.data.size||file.size, mime: file.type, uploadedAt: Date.now(), description: f.content.value||'', source: r.data.fallback?'local':'upload', fallback: !!r.data.fallback };
+        if(!mats.some(m=>m.id===matId)) mats.unshift(mat); DB.set('materials', mats); materialId = mat.id;
         $('#upStatus').innerHTML = '<span style="color:var(--success)">✓ Berhasil diupload & disimpan ke Bank Materi</span>';
       }
     } else if(src==='link'){
@@ -1664,7 +1677,10 @@ PAGES.materials = el => {
     el.innerHTML = `
       <div class="page-head">
         <div><h2>📚 Bank Materi</h2><p>${mats.length} file · tersimpan di Google Drive ${API_ENABLED()?'<span class="badge success">terhubung</span>':'<span class="badge warn">GAS_URL belum diset, mode lokal</span>'}</p></div>
-        <button class="btn primary" id="upMat">+ Upload Materi</button>
+        <div class="flex gap-1">
+          ${API_ENABLED()?'<button class="btn ghost" id="rescanMat" title="Pindai ulang folder Drive untuk file yang ditambah/dihapus manual">🔄 Refresh dari Drive</button>':''}
+          <button class="btn primary" id="upMat">+ Upload Materi</button>
+        </div>
       </div>
       <div class="tabs">${['all','pdf','video','audio'].map(t=>`<button data-t="${t}" class="${filter===t?'active':''}">${t==='all'?'Semua':t.toUpperCase()}</button>`).join('')}</div>
       <div class="grid-3" style="margin-top:12px">
@@ -1687,6 +1703,14 @@ PAGES.materials = el => {
     `;
     $$('[data-t]').forEach(b=>b.onclick=()=>{filter=b.dataset.t; draw();});
     $('#upMat').onclick = ()=>materialForm();
+    const rs = $('#rescanMat');
+    if(rs) rs.onclick = async ()=>{
+      rs.disabled = true; rs.textContent = '⏳ Memindai Drive...';
+      const r = await apiFetch('syncPull',{forceRescan:true},{retries:1});
+      if(r && r.ok && r.data){ _applyPull(r); toast('Bank Materi disinkron ulang dari Drive','success'); }
+      else toast('Gagal memindai Drive','danger');
+      renderPage();
+    };
     $$('[data-ed]').forEach(b=>b.onclick=()=>materialForm(b.dataset.ed));
     $$('[data-rm]').forEach(b=>b.onclick=()=>{
       const id = b.dataset.rm;
@@ -1739,8 +1763,12 @@ function materialForm(id){
     const r = await uploadToDrive(file, {title, description:desc, onProgress:(p)=>{ const st=$('#matStatus'); if(st) st.innerHTML='<span style="color:var(--info)">⏳ Mengupload potongan besar... '+p+'%</span>'; }});
     if(!r.ok){ $('#matStatus').innerHTML='<span style="color:var(--danger)">✕ '+esc(r.msg||'Gagal')+'</span>'; return; }
     const arr = DB.get('materials',[]);
-    arr.unshift({ id:uid('mat'), title, description:desc, type:r.data.type, fileId:r.data.fileId, url:r.data.url, viewUrl:r.data.viewUrl||r.data.url, size:r.data.size||file.size, mime:file.type, uploadedAt:Date.now(), fallback:!!r.data.fallback });
-    DB.set('materials', arr); apiSync('syncPush',{materials:arr});
+    const matId = r.data.materialId || ('mat_'+String(r.data.fileId||uid('f')).slice(0,10));
+    if(!arr.some(m=>m.id===matId))
+      arr.unshift({ id:matId, title, description:desc, type:r.data.type, fileId:r.data.fileId, url:r.data.url, viewUrl:r.data.viewUrl||r.data.url, size:r.data.size||file.size, mime:file.type, uploadedAt:Date.now(), source:r.data.fallback?'local':'upload', fallback:!!r.data.fallback });
+    DB.set('materials', arr);
+    // saat backend live, server sudah punya record-nya (uploadFile menulis ke sheet) → tak perlu push ulang
+    if(!API_ENABLED()) apiSync('syncPush',{materials:arr});
     closeModal(); toast('Materi berhasil diupload','success'); renderPage();
   };
 }
@@ -2640,13 +2668,27 @@ PAGES.payment = el => {
         $('#qrUp').onchange = async e=>{
           const f = e.target.files[0]; if(!f) return;
           if(f.size>2*1024*1024){ toast('Maks 2MB','danger'); return; }
-          const reader = new FileReader();
-          reader.onload = ev =>{
-            s.qris.dataUrl = ev.target.result;
-            $('#qrF').imageUrl.value = '';
-            renderPrev(); toast('QRIS dimuat (klik Simpan)','success');
-          };
-          reader.readAsDataURL(f);
+          if(API_ENABLED()){
+            toast('Mengupload QRIS ke Drive...','info');
+            const r = await uploadToDrive(f, {title:'QRIS '+(s.qris.merchantName||'')});
+            if(r && r.ok && r.data && !r.data.fallback){
+              s.qris.dataUrl = r.data.viewUrl ? ('https://drive.google.com/uc?export=view&id='+r.data.fileId) : r.data.url;
+              s.qris.fileId = r.data.fileId;
+              $('#qrF').imageUrl.value = '';
+              renderPrev(); toast('QRIS terupload ke Drive (klik Simpan)','success');
+            } else {
+              toast((r&&r.msg)||'Upload QRIS gagal','danger');
+            }
+          } else {
+            // backend belum diset → simpan sementara sebagai data URL lokal
+            const reader = new FileReader();
+            reader.onload = ev =>{
+              s.qris.dataUrl = ev.target.result;
+              $('#qrF').imageUrl.value = '';
+              renderPrev(); toast('⚠️ GAS_URL belum diset — QRIS disimpan lokal (klik Simpan)','warn');
+            };
+            reader.readAsDataURL(f);
+          }
         };
         $('#qrSave').onclick=()=>{
           const f=$('#qrF');
@@ -3318,16 +3360,30 @@ PAGES.settings = el => {
     };
     if(tab==='general'){
       const li = el.querySelector('#logoImg');
-      if(li) li.onchange = e=>{
+      if(li) li.onchange = async e=>{
         const file = e.target.files[0]; if(!file) return;
         if(file.size>1024*1024){ toast('Logo maks 1MB','danger'); return; }
-        const fr = new FileReader();
-        fr.onload = ev=>{
-          const ns = DB.get('settings'); ns.general.logoImage = ev.target.result;
-          DB.set('settings',ns); apiSync('syncPush',{settings:ns});
-          applyBranding(); toast('Logo tersimpan & dipasang ke Web App','success'); draw();
-        };
-        fr.readAsDataURL(file);
+        if(API_ENABLED()){
+          toast('Mengupload logo ke Drive...','info');
+          const r = await uploadToDrive(file, {title:'Logo Web App'});
+          if(r && r.ok && r.data && !r.data.fallback){
+            const ns = DB.get('settings');
+            ns.general.logoImage = 'https://drive.google.com/uc?export=view&id='+r.data.fileId;
+            ns.general.logoFileId = r.data.fileId;
+            DB.set('settings',ns); apiSync('syncPush',{settings:ns});
+            applyBranding(); toast('Logo terupload ke Drive & dipasang','success'); draw();
+          } else {
+            toast((r&&r.msg)||'Upload logo gagal','danger');
+          }
+        } else {
+          const fr = new FileReader();
+          fr.onload = ev=>{
+            const ns = DB.get('settings'); ns.general.logoImage = ev.target.result;
+            DB.set('settings',ns); apiSync('syncPush',{settings:ns});
+            applyBranding(); toast('⚠️ GAS_URL belum diset — logo disimpan lokal','warn'); draw();
+          };
+          fr.readAsDataURL(file);
+        }
       };
       const ld = el.querySelector('#logoDel');
       if(ld) ld.onclick = ()=>{
@@ -4080,8 +4136,8 @@ function bootSync(){
     }
     if(!_syncTimer) _syncTimer=setInterval(()=>{
       if(!state.user) return;
-      apiFetch('syncPull',{},{retries:1}).then(rr=>{ if(rr&&rr.ok&&rr.data){ _applyPull(rr); renderPage(); } });
-    },45000); // poll tiap 45 detik
+      apiFetch('syncPull',{},{retries:1}).then(rr=>{ if(rr&&rr.ok&&rr.data){ _applyPull(rr); state.user?renderPage():render(); } });
+    },15000); // poll tiap 15 detik (realtime-ish)
   });
 }
 
