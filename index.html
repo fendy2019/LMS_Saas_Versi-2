@@ -582,7 +582,12 @@ function _applyPull(r, pullStart){
     DB.set('settings', { ...d, ...s,
       general:{...d.general,...(s.general||{})}, seo:{...d.seo,...(s.seo||{})}, security:{...d.security,...(s.security||{})} });
   }
-  ['certTemplate','paymentSettings'].forEach(k=>{ if(r.data[k]) DB.set(k, r.data[k]); });
+  if(r.data.paymentSettings){
+    const d = defaultPaySettings(); const s = r.data.paymentSettings;
+    DB.set('paymentSettings', { ...d, ...s,
+      gateways:{...d.gateways,...(s.gateways||{})}, qris:{...d.qris,...(s.qris||{})}, bank:{...d.bank,...(s.bank||{})} });
+  }
+  if(r.data.certTemplate) DB.set('certTemplate', r.data.certTemplate);
   if(state.user){
     const fresh=DB.get('users',[]).find(x=>x.id===state.user.id);
     if(fresh) state.user={...state.user,...fresh};
@@ -2602,12 +2607,22 @@ const PAYMENT_GATEWAYS = [
   {id:'tripay',   name:'TriPay',       icon:'🟧', desc:'QRIS, VA, eWallet, gerai retail', fields:['apiKey','privateKey','merchantCode']},
 ];
 
-function getPaySettings(){
-  return DB.get('paymentSettings', {
+function defaultPaySettings(){
+  return {
     gateways: {},     // {midtrans:{enabled,mode,...creds}}
     qris: { enabled:false, merchantName:'', imageUrl:'', dataUrl:'', instructions:'Scan QR di bawah lalu konfirmasi pembayaran via WhatsApp.' },
     bank: { enabled:false, bankName:'', accountNumber:'', accountName:'' },
-  });
+  };
+}
+function getPaySettings(){
+  const d = defaultPaySettings();
+  const s = DB.get('paymentSettings') || {};
+  return {
+    ...d, ...s,
+    gateways: { ...(d.gateways), ...(s.gateways||{}) },
+    qris:     { ...d.qris, ...(s.qris||{}) },
+    bank:     { ...d.bank, ...(s.bank||{}) },
+  };
 }
 function savePaySettings(s){ DB.set('paymentSettings',s); apiSync('syncPush',{paymentSettings:s}); }
 
