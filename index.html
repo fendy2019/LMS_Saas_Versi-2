@@ -318,7 +318,7 @@ const authToken = {
  * Ganti GAS_URL dengan URL Web App deploy GAS Anda.
  * apiFetch(action,payload) = async wrapper + retry exponential backoff (max 3x)
  * ============================================================ */
-const GAS_URL = "https://script.google.com/macros/s/AKfycbz9eJRzJFmvEwCfg4PsZIfNnehlr4pK1PVtCsJzNChcYPMVquWal6bsYD5eDRy_A1Pp/exec"; // <-- paste URL Web App GAS di sini
+const GAS_URL = "https://script.google.com/macros/s/AKfycbwPSP09vyI_zYawBAQ7oqp3s9fl9AcvBPdcdnuW5yDCDH_qPZAd6RjTFueSRanhE6A/exec"; // <-- paste URL Web App GAS di sini
 const HMAC_SECRET = "1"; // <-- samakan dengan Script Properties HMAC_SECRET di GAS
 const API_ENABLED = () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
 
@@ -387,66 +387,71 @@ function apiSync(action, payload){
 }
 
 /* ============================================================
- * PENYIMPANAN KOLEKSI TERPUSAT (anti data hilang)
- * Setiap CRUD lokal WAJIB lewat sini agar:
- *  1) tersimpan ke localStorage (tampil seketika), dan
- *  2) terkirim & tersimpan ke backend (syncPush / upsert), dan
- *  3) dilindungi dari penimpaan oleh polling authoritative
- *     SAMPAI server benar-benar mengonfirmasi (bukan sekadar push sukses).
+ * PENYIMPANAN KOLEKSI TERPUSAT (anti data hilang) — v3
+ * Prinsip: sebuah koleksi yang punya perubahan lokal BELUM dikonfirmasi
+ * server TIDAK BOLEH ditimpa oleh pull mana pun (tak peduli timing),
+ * sampai server benar-benar memuat data yang sama (dikonfirmasi),
+ * atau melewati batas waktu pengaman yang sangat longgar.
  *
- * Mekanisme guard:
- *  - _mutatedAt[name]   = waktu mutasi lokal terakhir.
- *  - _pullStartedAt     = waktu sebuah syncPull DIKIRIM (per request).
- *    Jika koleksi dimutasi SETELAH pull dikirim, respons pull itu "basi"
- *    untuk koleksi tsb dan TIDAK boleh menimpa lokal.
- *  - Guard hanya hilang bila respons pull (yang dikirim SETELAH mutasi)
- *    sudah memuat data yang cocok, atau setelah TTL pengaman lewat.
+ * State per koleksi:
+ *   _dirty[name]      = true selama perubahan lokal belum dikonfirmasi server.
+ *   _dirtySince[name] = waktu pertama jadi dirty (utk batas pengaman).
+ *   _lastPushOk[name] = status push terakhir (utk dorong ulang saat poll).
+ * Guard dilepas HANYA lewat _confirmSynced (server == lokal).
  * ============================================================ */
-const _mutatedAt = {};       // name -> timestamp mutasi lokal terakhir
-const _pushFailed = {};      // name -> true bila push terakhir gagal (perlu retry saat pull)
-const PENDING_TTL = 120000;  // 2 menit pengaman maksimal
+const _dirty = {};
+const _dirtySince = {};
+const _lastPushOk = {};
+const DIRTY_SAFETY_TTL = 10 * 60 * 1000; // 10 menit: batas paling longgar agar tak terkunci selamanya
 
-function _markMutated(name){ _mutatedAt[name] = Date.now(); }
-// Koleksi dianggap "terkunci" terhadap respons pull yang dikirim pada waktu pullStart.
-function _isLockedFor(name, pullStart){
-  const m = _mutatedAt[name];
-  if(!m) return false;
-  if(Date.now() - m > PENDING_TTL){ return false; } // pengaman: jangan kunci selamanya
-  // Terkunci bila mutasi terjadi pada/seteah pull dikirim (respons pull = data lama).
-  return m >= (pullStart||0);
+function _markDirty(name){ _dirty[name] = true; if(!_dirtySince[name]) _dirtySince[name] = Date.now(); }
+function _isDirty(name){
+  if(!_dirty[name]) return false;
+  if(Date.now() - (_dirtySince[name]||0) > DIRTY_SAFETY_TTL){ // pengaman terakhir
+    delete _dirty[name]; delete _dirtySince[name]; return false;
+  }
+  return true;
 }
-function _confirmSynced(name, serverArr, localArr){
-  // Lepas kunci hanya jika isi server sudah cocok jumlah & id dengan lokal.
+function _clearDirty(name){ delete _dirty[name]; delete _dirtySince[name]; }
+// Lepas status dirty hanya bila isi server sudah cocok (jumlah + id) dengan lokal.
+function _confirmSynced(name, serverArr){
   try{
-    if(!Array.isArray(serverArr)||!Array.isArray(localArr)) return;
-    if(serverArr.length!==localArr.length) return;
-    const sids = serverArr.map(x=>x&&x.id).sort().join(',');
-    const lids = localArr.map(x=>x&&x.id).sort().join(',');
-    if(sids===lids){ delete _mutatedAt[name]; delete _pushFailed[name]; }
+    const localArr = DB.get(name, []);
+    if(!Array.isArray(serverArr)||!Array.isArray(localArr)) return false;
+    if(serverArr.length!==localArr.length) return false;
+    const s = serverArr.map(x=>x&&x.id).sort().join('|');
+    const l = localArr.map(x=>x&&x.id).sort().join('|');
+    if(s===l){ _clearDirty(name); return true; }
   }catch(e){}
+  return false;
+}
+// Dorong ulang koleksi dirty ke server (dipanggil tiap poll bila push belum sukses).
+function _repush(name){
+  if(!API_ENABLED()) return;
+  const cur = DB.get(name, []);
+  apiFetch('syncPush', { [name]: cur }, { retries:2 }).then(r=>{ _lastPushOk[name] = !!(r&&r.ok); });
 }
 
 // Simpan satu koleksi: lokal + backend (syncPush, jalur admin).
 async function saveCollection(name, arr){
-  DB.set(name, arr);
-  _markMutated(name);
+  DB.set(name, arr); _markDirty(name);
   if(!API_ENABLED()) return { ok:true, local:true };
   try{
     const r = await apiFetch('syncPush', { [name]: arr }, { retries:3 });
-    if(r && r.ok){ _pushFailed[name]=false; }
-    else { _pushFailed[name]=true; }
+    _lastPushOk[name] = !!(r&&r.ok);
+    // Jangan langsung lepas dirty di sini; tunggu pull mengonfirmasi (server == lokal).
     return r || { ok:false };
-  }catch(e){ _pushFailed[name]=true; return { ok:false, msg:String(e) }; }
+  }catch(e){ _lastPushOk[name]=false; return { ok:false, msg:String(e) }; }
 }
 // Simpan beberapa koleksi sekaligus (mis. saat satu aksi mengubah 2 tabel)
 async function saveCollections(obj){
-  Object.entries(obj).forEach(([k,v])=>{ DB.set(k,v); _markMutated(k); });
+  Object.entries(obj).forEach(([k,v])=>{ DB.set(k,v); _markDirty(k); });
   if(!API_ENABLED()) return { ok:true, local:true };
   try{
     const r = await apiFetch('syncPush', obj, { retries:3 });
-    Object.keys(obj).forEach(k=>{ if(r&&r.ok) _pushFailed[k]=false; else _pushFailed[k]=true; });
+    Object.keys(obj).forEach(k=>{ _lastPushOk[k] = !!(r&&r.ok); });
     return r || { ok:false };
-  }catch(e){ Object.keys(obj).forEach(k=>_pushFailed[k]=true); return { ok:false, msg:String(e) }; }
+  }catch(e){ Object.keys(obj).forEach(k=>_lastPushOk[k]=false); return { ok:false, msg:String(e) }; }
 }
 /* Tambah/ubah SATU baris pada entity (jalur non-admin utk review, thread, dll).
  * Memakai handler 'upsert' backend (boleh non-admin utk entity non-admin-only). */
@@ -454,13 +459,13 @@ async function upsertRemote(entity, row){
   const arr = DB.get(entity, []);
   const i = arr.findIndex(x=>x.id===row.id);
   if(i>=0) arr[i] = {...arr[i], ...row}; else arr.unshift(row);
-  DB.set(entity, arr); _markMutated(entity);
+  DB.set(entity, arr); _markDirty(entity);
   if(!API_ENABLED()) return { ok:true, local:true };
   try{
     const r = await apiFetch('upsert', { entity, row }, { retries:3 });
-    if(r && r.ok) _pushFailed[entity]=false; else _pushFailed[entity]=true;
+    _lastPushOk[entity] = !!(r&&r.ok);
     return r || { ok:false };
-  }catch(e){ _pushFailed[entity]=true; return { ok:false, msg:String(e) }; }
+  }catch(e){ _lastPushOk[entity]=false; return { ok:false, msg:String(e) }; }
 }
 window.saveCollection = saveCollection;
 window.saveCollections = saveCollections;
@@ -533,7 +538,6 @@ async function deleteFromDrive(fileId){
 // termasuk koleksi yang dikosongkan (hasil hapus manual di Spreadsheet/Drive).
 function _applyPull(r, pullStart){
   if(!(r && r.ok && r.data)) return;
-  pullStart = pullStart || 0;
   const map = {
     users:'users', courses:'courses', categories:'categories', instructors:'instructors',
     transactions:'transactions', coupons:'coupons', reviews:'reviews', threads:'threads',
@@ -544,16 +548,17 @@ function _applyPull(r, pullStart){
   const live = Array.isArray(r.data.users) && r.data.users.length>0;
   Object.entries(map).forEach(([k,sk])=>{
     if (Array.isArray(r.data[k])){
-      // Jika koleksi dimutasi lokal pada/setelah pull ini dikirim, respons pull = data lama → JANGAN timpa.
-      if (_isLockedFor(sk, pullStart)){
-        // Coba lepas kunci bila server ternyata sudah sinkron dgn lokal (push sudah masuk).
-        _confirmSynced(sk, r.data[k], DB.get(sk, []));
-        // Bila push terakhir gagal, dorong ulang agar tidak hilang.
-        if(_pushFailed[sk]){ const cur=DB.get(sk,[]); apiFetch('syncPush',{[sk]:cur},{retries:2}).then(rr=>{ if(rr&&rr.ok)_pushFailed[sk]=false; }); }
-        return; // pertahankan data lokal
+      // Koleksi dengan perubahan lokal belum dikonfirmasi → JANGAN PERNAH ditimpa.
+      if (_isDirty(sk)){
+        // Bila server kini sudah memuat data yang sama, lepas status dirty.
+        if(!_confirmSynced(sk, r.data[k])){
+          // Belum cocok → dorong ulang ke server agar perubahan tidak hilang.
+          _repush(sk);
+        }
+        return; // pertahankan data lokal apa pun yang terjadi
       }
-      // saat live: selalu timpa (termasuk array kosong → hapus lokal). saat belum live: hanya bila ada isi.
-      if (live || r.data[k].length){ DB.set(sk, r.data[k]); delete _mutatedAt[sk]; delete _pushFailed[sk]; }
+      // Tidak dirty → server authoritative. saat live: selalu timpa (termasuk kosong → hapus).
+      if (live || r.data[k].length) DB.set(sk, r.data[k]);
     }
   });
   // settings: gabungkan agar bentuk selalu lengkap (server bisa saja parsial)
