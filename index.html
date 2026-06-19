@@ -390,44 +390,63 @@ function apiSync(action, payload){
  * PENYIMPANAN KOLEKSI TERPUSAT (anti data hilang)
  * Setiap CRUD lokal WAJIB lewat sini agar:
  *  1) tersimpan ke localStorage (tampil seketika), dan
- *  2) terkirim & tersimpan ke backend (syncPush), dan
- *  3) dilindungi dari penimpaan oleh polling authoritative 15 dtk
- *     sampai server mengonfirmasi (guard "pending push").
+ *  2) terkirim & tersimpan ke backend (syncPush / upsert), dan
+ *  3) dilindungi dari penimpaan oleh polling authoritative
+ *     SAMPAI server benar-benar mengonfirmasi (bukan sekadar push sukses).
+ *
+ * Mekanisme guard:
+ *  - _mutatedAt[name]   = waktu mutasi lokal terakhir.
+ *  - _pullStartedAt     = waktu sebuah syncPull DIKIRIM (per request).
+ *    Jika koleksi dimutasi SETELAH pull dikirim, respons pull itu "basi"
+ *    untuk koleksi tsb dan TIDAK boleh menimpa lokal.
+ *  - Guard hanya hilang bila respons pull (yang dikirim SETELAH mutasi)
+ *    sudah memuat data yang cocok, atau setelah TTL pengaman lewat.
  * ============================================================ */
-const _pendingPush = {};   // name -> timestamp kadaluarsa guard
-const PENDING_TTL = 30000; // 30 dtk: cukup utk push + konfirmasi pull berikutnya
+const _mutatedAt = {};       // name -> timestamp mutasi lokal terakhir
+const _pushFailed = {};      // name -> true bila push terakhir gagal (perlu retry saat pull)
+const PENDING_TTL = 120000;  // 2 menit pengaman maksimal
 
-function _markPending(name){ _pendingPush[name] = Date.now() + PENDING_TTL; }
-function _isPending(name){
-  const t = _pendingPush[name];
-  if(!t) return false;
-  if(Date.now() > t){ delete _pendingPush[name]; return false; }
-  return true;
+function _markMutated(name){ _mutatedAt[name] = Date.now(); }
+// Koleksi dianggap "terkunci" terhadap respons pull yang dikirim pada waktu pullStart.
+function _isLockedFor(name, pullStart){
+  const m = _mutatedAt[name];
+  if(!m) return false;
+  if(Date.now() - m > PENDING_TTL){ return false; } // pengaman: jangan kunci selamanya
+  // Terkunci bila mutasi terjadi pada/seteah pull dikirim (respons pull = data lama).
+  return m >= (pullStart||0);
 }
-function _clearPending(name){ delete _pendingPush[name]; }
+function _confirmSynced(name, serverArr, localArr){
+  // Lepas kunci hanya jika isi server sudah cocok jumlah & id dengan lokal.
+  try{
+    if(!Array.isArray(serverArr)||!Array.isArray(localArr)) return;
+    if(serverArr.length!==localArr.length) return;
+    const sids = serverArr.map(x=>x&&x.id).sort().join(',');
+    const lids = localArr.map(x=>x&&x.id).sort().join(',');
+    if(sids===lids){ delete _mutatedAt[name]; delete _pushFailed[name]; }
+  }catch(e){}
+}
 
-// Simpan satu koleksi: lokal + backend. Mengembalikan Promise (boleh tidak di-await).
+// Simpan satu koleksi: lokal + backend (syncPush, jalur admin).
 async function saveCollection(name, arr){
   DB.set(name, arr);
+  _markMutated(name);
   if(!API_ENABLED()) return { ok:true, local:true };
-  _markPending(name);
   try{
     const r = await apiFetch('syncPush', { [name]: arr }, { retries:3 });
-    if(r && r.ok){ _clearPending(name); return r; }
-    // gagal push: biarkan guard kadaluarsa sendiri agar pull tak langsung menimpa
+    if(r && r.ok){ _pushFailed[name]=false; }
+    else { _pushFailed[name]=true; }
     return r || { ok:false };
-  }catch(e){ return { ok:false, msg:String(e) }; }
+  }catch(e){ _pushFailed[name]=true; return { ok:false, msg:String(e) }; }
 }
 // Simpan beberapa koleksi sekaligus (mis. saat satu aksi mengubah 2 tabel)
 async function saveCollections(obj){
-  Object.entries(obj).forEach(([k,v])=>{ DB.set(k,v); });
+  Object.entries(obj).forEach(([k,v])=>{ DB.set(k,v); _markMutated(k); });
   if(!API_ENABLED()) return { ok:true, local:true };
-  Object.keys(obj).forEach(_markPending);
   try{
     const r = await apiFetch('syncPush', obj, { retries:3 });
-    if(r && r.ok){ Object.keys(obj).forEach(_clearPending); return r; }
+    Object.keys(obj).forEach(k=>{ if(r&&r.ok) _pushFailed[k]=false; else _pushFailed[k]=true; });
     return r || { ok:false };
-  }catch(e){ return { ok:false, msg:String(e) }; }
+  }catch(e){ Object.keys(obj).forEach(k=>_pushFailed[k]=true); return { ok:false, msg:String(e) }; }
 }
 /* Tambah/ubah SATU baris pada entity (jalur non-admin utk review, thread, dll).
  * Memakai handler 'upsert' backend (boleh non-admin utk entity non-admin-only). */
@@ -435,14 +454,13 @@ async function upsertRemote(entity, row){
   const arr = DB.get(entity, []);
   const i = arr.findIndex(x=>x.id===row.id);
   if(i>=0) arr[i] = {...arr[i], ...row}; else arr.unshift(row);
-  DB.set(entity, arr);
+  DB.set(entity, arr); _markMutated(entity);
   if(!API_ENABLED()) return { ok:true, local:true };
-  _markPending(entity);
   try{
     const r = await apiFetch('upsert', { entity, row }, { retries:3 });
-    if(r && r.ok) _clearPending(entity);
+    if(r && r.ok) _pushFailed[entity]=false; else _pushFailed[entity]=true;
     return r || { ok:false };
-  }catch(e){ return { ok:false, msg:String(e) }; }
+  }catch(e){ _pushFailed[entity]=true; return { ok:false, msg:String(e) }; }
 }
 window.saveCollection = saveCollection;
 window.saveCollections = saveCollections;
@@ -513,8 +531,9 @@ async function deleteFromDrive(fileId){
 // 2-way sync: tarik data dari sheet ke localStorage (panggil di startup setelah login)
 // SERVER AUTHORITATIVE: bila backend "live", state server selalu menang —
 // termasuk koleksi yang dikosongkan (hasil hapus manual di Spreadsheet/Drive).
-function _applyPull(r){
+function _applyPull(r, pullStart){
   if(!(r && r.ok && r.data)) return;
+  pullStart = pullStart || 0;
   const map = {
     users:'users', courses:'courses', categories:'categories', instructors:'instructors',
     transactions:'transactions', coupons:'coupons', reviews:'reviews', threads:'threads',
@@ -525,10 +544,16 @@ function _applyPull(r){
   const live = Array.isArray(r.data.users) && r.data.users.length>0;
   Object.entries(map).forEach(([k,sk])=>{
     if (Array.isArray(r.data[k])){
-      // Jangan timpa koleksi yang sedang menunggu konfirmasi push lokal (cegah data hilang).
-      if (_isPending(sk)) return;
+      // Jika koleksi dimutasi lokal pada/setelah pull ini dikirim, respons pull = data lama → JANGAN timpa.
+      if (_isLockedFor(sk, pullStart)){
+        // Coba lepas kunci bila server ternyata sudah sinkron dgn lokal (push sudah masuk).
+        _confirmSynced(sk, r.data[k], DB.get(sk, []));
+        // Bila push terakhir gagal, dorong ulang agar tidak hilang.
+        if(_pushFailed[sk]){ const cur=DB.get(sk,[]); apiFetch('syncPush',{[sk]:cur},{retries:2}).then(rr=>{ if(rr&&rr.ok)_pushFailed[sk]=false; }); }
+        return; // pertahankan data lokal
+      }
       // saat live: selalu timpa (termasuk array kosong → hapus lokal). saat belum live: hanya bila ada isi.
-      if (live || r.data[k].length) DB.set(sk, r.data[k]);
+      if (live || r.data[k].length){ DB.set(sk, r.data[k]); delete _mutatedAt[sk]; delete _pushFailed[sk]; }
     }
   });
   // settings: gabungkan agar bentuk selalu lengkap (server bisa saja parsial)
@@ -548,8 +573,9 @@ function _applyPull(r){
   }
 }
 async function pullFromBackend(silent, opts){
+  const pullStart = Date.now();   // catat SEBELUM kirim, utk deteksi mutasi lokal yg lebih baru
   const r = await apiFetch('syncPull', (opts&&opts.forceRescan)?{forceRescan:true}:{}, {retries:1});
-  _applyPull(r);
+  _applyPull(r, pullStart);
   if(r && r.ok && r.data && !silent) toast('Data tersinkron dari server','success');
   return r;
 }
@@ -1420,8 +1446,14 @@ function catForm(id){
     const cats = DB.get('categories',[]);
     if(id){ const i=cats.findIndex(x=>x.id===id); cats[i]={...cats[i],name:f.name.value.trim(),icon:f.icon.value||'📁'}; }
     else cats.push({id:uid('c'),name:f.name.value.trim(),icon:f.icon.value||'📁'});
-    const btn=$('#cs'); if(btn) btn.disabled=true;
-    await saveCollection('categories',cats); closeModal(); toast('Tersimpan','success'); renderPage();
+    const btn=$('#cs'); if(btn){ btn.disabled=true; btn.textContent='Menyimpan...'; }
+    const r = await saveCollection('categories',cats);
+    if(API_ENABLED() && r && r.ok===false){
+      if(btn){ btn.disabled=false; btn.textContent='Simpan'; }
+      toast('Gagal menyimpan ke server: '+((r&&r.msg)||'coba lagi atau login ulang')+'. Data tetap tersimpan sementara di perangkat.','danger');
+      return;   // jangan tutup modal; biarkan admin coba lagi
+    }
+    closeModal(); toast(API_ENABLED()?'Tersimpan ke server':'Tersimpan','success'); renderPage();
   };
 }
 
@@ -1663,8 +1695,9 @@ PAGES.materials = el => {
     const rs = $('#rescanMat');
     if(rs) rs.onclick = async ()=>{
       rs.disabled = true; rs.textContent = '⏳ Memindai Drive...';
+      const _ps=Date.now();
       const r = await apiFetch('syncPull',{forceRescan:true},{retries:1});
-      if(r && r.ok && r.data){ _applyPull(r); toast('Bank Materi disinkron ulang dari Drive','success'); }
+      if(r && r.ok && r.data){ _applyPull(r,_ps); toast('Bank Materi disinkron ulang dari Drive','success'); }
       else toast('Gagal memindai Drive','danger');
       renderPage();
     };
@@ -4152,11 +4185,13 @@ function render(){
 function bootSync(){
   if(!API_ENABLED() || _syncedThisSession) return;
   _syncedThisSession=true;
+  const _ps0=Date.now();
   apiFetch('syncPull',{},{retries:1}).then(r=>{
-    if(r && r.ok && r.data){ _applyPull(r); if(state.user) renderPage(); }
+    if(r && r.ok && r.data){ _applyPull(r,_ps0); if(state.user) renderPage(); }
     if(!_syncTimer) _syncTimer=setInterval(()=>{
       if(!state.user) return;
-      apiFetch('syncPull',{},{retries:1}).then(rr=>{ if(rr&&rr.ok&&rr.data){ _applyPull(rr); state.user?renderPage():render(); } });
+      const _ps=Date.now();
+      apiFetch('syncPull',{},{retries:1}).then(rr=>{ if(rr&&rr.ok&&rr.data){ _applyPull(rr,_ps); state.user?renderPage():render(); } });
     },15000); // poll tiap 15 detik (realtime-ish)
   });
 }
