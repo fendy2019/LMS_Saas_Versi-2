@@ -318,7 +318,7 @@ const authToken = {
  * Ganti GAS_URL dengan URL Web App deploy GAS Anda.
  * apiFetch(action,payload) = async wrapper + retry exponential backoff (max 3x)
  * ============================================================ */
-const GAS_URL = "https://script.google.com/macros/s/AKfycbxAr44JEKXG8n_Kha2aOgua_zvOYJnwZNorfky_qPHho5OGi67eacSsS-PsnsaQ-NfT/exec"; // <-- paste URL Web App GAS di sini
+const GAS_URL = "https://script.google.com/macros/s/AKfycbx8dnNu2ZPVMMbDZ9PZ0nVqOcPPc5TNAemLsIQETOqML8JSO0egLW-LDYzxIuqfsWg/exec"; // <-- paste URL Web App GAS di sini
 const HMAC_SECRET = "1"; // <-- samakan dengan Script Properties HMAC_SECRET di GAS
 const API_ENABLED = () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
 
@@ -486,6 +486,28 @@ window.saveCollection = saveCollection;
 window.saveCollections = saveCollections;
 window.upsertRemote = upsertRemote;
 
+/* Simpan koleksi BERBENTUK OBJEK (bukan array): settings, paymentSettings, certTemplate.
+ * Lokal + backend (syncPush). Tidak memakai guard dirty array karena bentuknya objek tunggal. */
+const _objDirty = {};        // name -> true selama perubahan objek belum dikonfirmasi server
+const _objDirtySince = {};
+function _markObjDirty(name){ _objDirty[name]=true; if(!_objDirtySince[name]) _objDirtySince[name]=Date.now(); }
+function _isObjDirty(name){
+  if(!_objDirty[name]) return false;
+  if(Date.now()-(_objDirtySince[name]||0) > 600000){ delete _objDirty[name]; delete _objDirtySince[name]; return false; }
+  return true;
+}
+function _clearObjDirty(name){ delete _objDirty[name]; delete _objDirtySince[name]; }
+async function saveCollectionObj(name, obj){
+  DB.set(name, obj); _markObjDirty(name);
+  if(!API_ENABLED()) return { ok:true, local:true };
+  try{
+    const r = await apiFetch('syncPush', { [name]: obj }, { retries:3 });
+    if(r && r.ok){ _clearObjDirty(name); }   // dikonfirmasi server → lepas dirty
+    return r || { ok:false };
+  }catch(e){ return { ok:false, msg:String(e) }; }
+}
+window.saveCollectionObj = saveCollectionObj;
+
 /* ===== FILE UPLOAD ke Google Drive via GAS =====
    Contract GAS (Code.gs di sisi Anda harus handle):
      POST { action:'uploadFile', data:{ filename, mime, base64, type, title, description } }
@@ -577,17 +599,22 @@ function _applyPull(r, pullStart){
     }
   });
   // settings: gabungkan agar bentuk selalu lengkap (server bisa saja parsial)
-  if(r.data.settings){
+  if(r.data.settings && !_isObjDirty('settings')){
     const d = defaultSettings(); const s = r.data.settings;
     DB.set('settings', { ...d, ...s,
-      general:{...d.general,...(s.general||{})}, seo:{...d.seo,...(s.seo||{})}, security:{...d.security,...(s.security||{})} });
+      general:{...d.general,...(s.general||{})}, seo:{...d.seo,...(s.seo||{})}, security:{...d.security,...(s.security||{})},
+      payment:{...d.payment,...(s.payment||{})}, smtp:{...d.smtp,...(s.smtp||{})} });
+  } else if(r.data.settings && _isObjDirty('settings')){
+    apiFetch('syncPush',{settings:DB.get('settings')},{retries:2}).then(rr=>{ if(rr&&rr.ok)_clearObjDirty('settings'); });
   }
-  if(r.data.paymentSettings){
+  if(r.data.paymentSettings && !_isObjDirty('paymentSettings')){
     const d = defaultPaySettings(); const s = r.data.paymentSettings;
     DB.set('paymentSettings', { ...d, ...s,
       gateways:{...d.gateways,...(s.gateways||{})}, qris:{...d.qris,...(s.qris||{})}, bank:{...d.bank,...(s.bank||{})} });
+  } else if(r.data.paymentSettings && _isObjDirty('paymentSettings')){
+    apiFetch('syncPush',{paymentSettings:DB.get('paymentSettings')},{retries:2}).then(rr=>{ if(rr&&rr.ok)_clearObjDirty('paymentSettings'); });
   }
-  if(r.data.certTemplate) DB.set('certTemplate', r.data.certTemplate);
+  if(r.data.certTemplate && !_isObjDirty('certTemplate')) DB.set('certTemplate', r.data.certTemplate);
   if(state.user){
     const fresh=DB.get('users',[]).find(x=>x.id===state.user.id);
     if(fresh) state.user={...state.user,...fresh};
@@ -722,6 +749,8 @@ function defaultSettings(){
     general:{ name:'EduFlow LMS', tagline:'Belajar Tanpa Batas', logo:'🎓' },
     seo:{ title:'EduFlow LMS', desc:'Platform kursus online.' },
     security:{ sessionTimeout:60, minPwLen:8 },
+    payment:{ midtransKey:'', xenditKey:'', stripeKey:'', paypalKey:'' },
+    smtp:{ host:'', port:'', user:'' },
   };
 }
 // Selalu kembalikan settings dengan bentuk lengkap (cegah undefined.general dst).
@@ -733,6 +762,8 @@ function getSettings(){
     general:  { ...d.general,  ...(s.general||{})  },
     seo:      { ...d.seo,      ...(s.seo||{})      },
     security: { ...d.security, ...(s.security||{}) },
+    payment:  { ...d.payment,  ...(s.payment||{})  },
+    smtp:     { ...d.smtp,     ...(s.smtp||{})     },
   };
 }
 function bootstrap(){
@@ -2624,7 +2655,7 @@ function getPaySettings(){
     bank:     { ...d.bank, ...(s.bank||{}) },
   };
 }
-function savePaySettings(s){ DB.set('paymentSettings',s); apiSync('syncPush',{paymentSettings:s}); }
+async function savePaySettings(s){ DB.set('paymentSettings',s); _markObjDirty('paymentSettings'); return saveCollectionObj('paymentSettings',s); }
 
 PAGES.payment = el => {
   const draw=()=>{
@@ -2809,17 +2840,20 @@ function gatewayConfigForm(id, after){
     </form>`,
     foot:`<button class="btn danger" id="gcDel">Hapus Config</button><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn primary" id="gcSave">💾 Simpan</button>`
   });
-  $('#gcSave').onclick=()=>{
+  $('#gcSave').onclick=async ()=>{
     const f=$('#gcF');
     // Kredensial rahasia dikirim ke backend (disimpan di sheet Secrets), TIDAK disimpan di browser.
     const creds = {}; g.fields.forEach(fd=>{ if(f[fd].value) creds[fd]=f[fd].value; });
     if(Object.keys(creds).length) apiSync('savePaymentSecret', { gateway:id, creds });
     const newCfg = { enabled:f.enabled.checked, mode:f.mode.value, hasSecret: Object.keys(creds).length>0 || !!(s.gateways[id]&&s.gateways[id].hasSecret) };
-    s.gateways[id] = newCfg; savePaySettings(s);
-    closeModal(); toast(g.name+' tersimpan (kredensial aman di backend)','success'); after&&after();
+    s.gateways[id] = newCfg;
+    const r = await savePaySettings(s);
+    closeModal();
+    toast(g.name+(newCfg.enabled?' diaktifkan':' disimpan')+(API_ENABLED()&&r&&r.ok===false?' (sinkron tertunda, akan terkirim otomatis)':''), 'success');
+    after&&after();
   };
-  $('#gcDel').onclick=()=>confirmModal('Hapus konfigurasi '+g.name+'?',()=>{
-    delete s.gateways[id]; savePaySettings(s);
+  $('#gcDel').onclick=()=>confirmModal('Hapus konfigurasi '+g.name+'?',async ()=>{
+    delete s.gateways[id]; await savePaySettings(s);
     closeModal(); toast('Dihapus','success'); after&&after();
   });
 }
@@ -3337,9 +3371,9 @@ PAGES.reports = el => {
 
 /* ---- Settings ---- */
 PAGES.settings = el => {
-  const s = DB.get('settings');
   let tab = 'general';
   const draw=()=>{
+    const s = getSettings();
     el.innerHTML = `
       <div class="page-head"><div><h2>Pengaturan</h2><p>Konfigurasi platform</p></div></div>
       <div class="tabs">${['general','seo','payment','smtp','security'].map(t=>`<button data-t="${t}" class="${tab===t?'active':''}">${t.toUpperCase()}</button>`).join('')}</div>
@@ -3381,11 +3415,20 @@ PAGES.settings = el => {
       })[tab]}</div>
     `;
     el.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{tab=b.dataset.t;draw();});
-    el.querySelector('#gf').onsubmit=e=>{
+    el.querySelector('#gf').onsubmit=async e=>{
       e.preventDefault(); const f=e.target;
-      const ns = DB.get('settings');
-      Object.keys(ns[tab]).forEach(k=>{ if(f[k]) ns[tab][k] = isNaN(+f[k].value)||f[k].type==='text'||f[k].type==='email'?f[k].value:+f[k].value; });
-      DB.set('settings',ns); toast('Pengaturan disimpan','success');
+      const ns = getSettings();                         // bentuk lengkap (semua sub-objek ada)
+      if(!ns[tab] || typeof ns[tab]!=='object') ns[tab] = {};
+      Object.keys(ns[tab]).forEach(k=>{
+        if(f[k]!==undefined && f[k]!==null){
+          const val = f[k].value;
+          ns[tab][k] = (f[k].type==='number' && val!=='' && !isNaN(+val)) ? +val : val;
+        }
+      });
+      DB.set('settings',ns);
+      const r = await saveCollectionObj('settings', ns); // simpan + jamin terkirim ke backend
+      toast(API_ENABLED()? (r&&r.ok!==false?'Pengaturan disimpan ke server':'Tersimpan, sinkron tertunda — akan terkirim otomatis') : 'Pengaturan disimpan','success');
+      applyBranding();
     };
     if(tab==='general'){
       const li = el.querySelector('#logoImg');
