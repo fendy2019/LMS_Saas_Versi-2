@@ -6,8 +6,8 @@
 <meta name="theme-color" content="#6366f1" />
 <meta name="description" content="EduFlow LMS - Platform Kursus Online SaaS Modern" />
 <title>EduFlow LMS - Platform Kursus Online</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%236366f1'/%3E%3Cpath d='M16 24l16-8 16 8-16 8z' fill='white'/%3E%3Cpath d='M22 30v8c0 3 4 6 10 6s10-3 10-6v-8' stroke='white' stroke-width='2.5' fill='none'/%3E%3C/svg%3E" />
-<link rel="manifest" href='data:application/manifest+json,{"name":"EduFlow LMS","short_name":"EduFlow","start_url":".","display":"standalone","background_color":"%230f172a","theme_color":"%236366f1","icons":[{"src":"data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 512 512%27%3E%3Crect width=%27512%27 height=%27512%27 rx=%27110%27 fill=%27%236366f1%27/%3E%3Cpath d=%27M128 192l128-64 128 64-128 64z%27 fill=%27white%27/%3E%3Cpath d=%27M176 240v64c0 24 32 48 80 48s80-24 80-48v-64%27 stroke=%27white%27 stroke-width=%2720%27 fill=%27none%27/%3E%3C/svg%3E","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}' />
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2214%22%20fill%3D%22%236366f1%22%2F%3E%3Cpath%20d%3D%22M16%2024l16-8%2016%208-16%208z%22%20fill%3D%22white%22%2F%3E%3Cpath%20d%3D%22M22%2030v8c0%203%204%206%2010%206s10-3%2010-6v-8%22%20stroke%3D%22white%22%20stroke-width%3D%222.5%22%20fill%3D%22none%22%2F%3E%3C%2Fsvg%3E" />
+<!-- Manifest dipasang saat runtime oleh applyBranding() (Blob URL valid) -->
 <style>
 /* ============== DESIGN TOKENS ============== */
 :root{
@@ -318,7 +318,7 @@ const authToken = {
  * Ganti GAS_URL dengan URL Web App deploy GAS Anda.
  * apiFetch(action,payload) = async wrapper + retry exponential backoff (max 3x)
  * ============================================================ */
-const GAS_URL = "https://script.google.com/macros/s/AKfycby4l-KEQsXPwqrb5lGmlu14eu20gjYBOVhZCfZJc1yAW0XT2OD23S8-GuCEbBm_nIKZEg/exec"; // <-- paste URL Web App GAS di sini
+const GAS_URL = "https://script.google.com/macros/s/AKfycbwKcGhYS5XNy5O_lw4n3W09ixpm4Plh_7F4RN5zduz8Tb6wO82XEizjbsStOSNIGYK-/exec"; // <-- paste URL Web App GAS di sini
 const HMAC_SECRET = "1"; // <-- samakan dengan Script Properties HMAC_SECRET di GAS
 const API_ENABLED = () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
 
@@ -467,7 +467,13 @@ function _applyPull(r){
       if (live || r.data[k].length) DB.set(sk, r.data[k]);
     }
   });
-  ['settings','certTemplate','paymentSettings'].forEach(k=>{ if(r.data[k]) DB.set(k, r.data[k]); });
+  // settings: gabungkan agar bentuk selalu lengkap (server bisa saja parsial)
+  if(r.data.settings){
+    const d = defaultSettings(); const s = r.data.settings;
+    DB.set('settings', { ...d, ...s,
+      general:{...d.general,...(s.general||{})}, seo:{...d.seo,...(s.seo||{})}, security:{...d.security,...(s.security||{})} });
+  }
+  ['certTemplate','paymentSettings'].forEach(k=>{ if(r.data[k]) DB.set(k, r.data[k]); });
   if(state.user){
     const fresh=DB.get('users',[]).find(x=>x.id===state.user.id);
     if(fresh) state.user={...state.user,...fresh};
@@ -603,10 +609,22 @@ function defaultSettings(){
     security:{ sessionTimeout:60, minPwLen:8 },
   };
 }
+// Selalu kembalikan settings dengan bentuk lengkap (cegah undefined.general dst).
+function getSettings(){
+  const d = defaultSettings();
+  const s = DB.get('settings') || {};
+  return {
+    ...d, ...s,
+    general:  { ...d.general,  ...(s.general||{})  },
+    seo:      { ...d.seo,      ...(s.seo||{})      },
+    security: { ...d.security, ...(s.security||{}) },
+  };
+}
 function bootstrap(){
   // Struktur minimal — hanya dibuat bila key belum ada, TIDAK menimpa cache server.
   EMPTY_COLLECTIONS.forEach(k=>{ if(DB.get(k)===null || DB.get(k)===undefined) DB.set(k, []); });
-  if(DB.get('settings')===null || DB.get('settings')===undefined) DB.set('settings', defaultSettings());
+  // Selalu pastikan settings berbentuk lengkap (merge default ke yang tersimpan/lama).
+  DB.set('settings', getSettings());
   if(DB.get('cart')===null || DB.get('cart')===undefined) DB.set('cart', {});
   // Tandai bahwa tidak ada lagi proses seeding demo.
   DB.set('seeded', true);
@@ -706,7 +724,7 @@ async function register(data){
  * AUTH PAGES
  * ============================================================ */
 function renderAuth(mode='login'){
-  const settings = DB.get('settings');
+  const settings = getSettings();
   document.title = settings.general.name+' - '+(mode==='login'?'Masuk':'Daftar');
   $('#app').innerHTML = `
   <div class="auth-wrap">
@@ -4041,7 +4059,7 @@ PAGES.profile = el => {
     us[ix].ig=f.ig.value; us[ix].li=f.li.value; us[ix].tw=f.tw.value;
     let newPw='';
     if(f.password.value){
-      const minL = DB.get('settings').security.minPwLen;
+      const minL = getSettings().security.minPwLen;
       if(f.password.value.length<minL){toast(`Password minimal ${minL} karakter`,'danger');return;}
       newPw = f.password.value;
       // Password disimpan terenkripsi di backend; jangan simpan plaintext untuk akun yang diautentikasi server.
@@ -4110,23 +4128,47 @@ if(!navigator.onLine) $('#offlineBanner').classList.remove('hidden');
 document.documentElement.dataset.theme = DB.get('theme','light');
 
 /* ===== Branding dinamis: pasang logo & manifest Web App (PWA) dari Pengaturan ===== */
+const DEFAULT_PWA_ICON = "data:image/svg+xml," + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">'+
+  '<rect width="512" height="512" rx="110" fill="#6366f1"/>'+
+  '<path d="M128 192l128-64 128 64-128 64z" fill="white"/>'+
+  '<path d="M176 240v64c0 24 32 48 80 48s80-24 80-48v-64" stroke="white" stroke-width="20" fill="none"/>'+
+  '</svg>'
+);
+function _iconMime(src){
+  if(typeof src!=='string') return 'image/png';
+  if(src.indexOf('data:image/svg')===0) return 'image/svg+xml';
+  const m = src.match(/^data:(image\/[a-z+]+)[;,]/i);
+  if(m) return m[1];
+  if(/\.svg(\?|$)/i.test(src)) return 'image/svg+xml';
+  if(/\.png(\?|$)/i.test(src)) return 'image/png';
+  if(/\.jpe?g(\?|$)/i.test(src)) return 'image/jpeg';
+  if(/\.webp(\?|$)/i.test(src)) return 'image/webp';
+  return 'image/png';
+}
+let _manifestUrl = null;
 function applyBranding(){
   try{
-    const s = DB.get('settings'); if(!s||!s.general) return;
+    const s = getSettings();
     const name = s.general.name||'EduFlow LMS';
-    const icon = s.general.logoImage; // data URL gambar (opsional)
+    const icon = s.general.logoImage || DEFAULT_PWA_ICON;  // selalu ada ikon valid
+    const mime = _iconMime(icon);
     document.title = (s.seo&&s.seo.title)||name;
-    if(icon){
-      let fav=document.querySelector('link[rel="icon"]'); if(!fav){fav=document.createElement('link');fav.rel='icon';document.head.appendChild(fav);} fav.href=icon;
-      let at=document.querySelector('link[rel="apple-touch-icon"]'); if(!at){at=document.createElement('link');at.rel='apple-touch-icon';document.head.appendChild(at);} at.href=icon;
-      const manifest = { name:name, short_name:(name||'EduFlow').slice(0,12), start_url:'.', display:'standalone',
-        background_color:'#0f172a', theme_color:'#6366f1',
-        icons:[{src:icon,sizes:'192x192',type:'image/png',purpose:'any maskable'},{src:icon,sizes:'512x512',type:'image/png',purpose:'any maskable'}] };
-      const blob = new Blob([JSON.stringify(manifest)],{type:'application/manifest+json'});
-      const url = URL.createObjectURL(blob);
-      let mf=document.querySelector('link[rel="manifest"]'); if(!mf){mf=document.createElement('link');mf.rel='manifest';document.head.appendChild(mf);} mf.href=url;
-    }
-  }catch(e){}
+    // favicon + apple-touch-icon
+    let fav=document.querySelector('link[rel="icon"]'); if(!fav){fav=document.createElement('link');fav.rel='icon';fav.type=mime;document.head.appendChild(fav);} fav.href=icon; fav.type=mime;
+    let at=document.querySelector('link[rel="apple-touch-icon"]'); if(!at){at=document.createElement('link');at.rel='apple-touch-icon';document.head.appendChild(at);} at.href=icon;
+    // manifest (selalu valid; ikon SVG memakai sizes:"any")
+    const sizesAttr = (mime==='image/svg+xml') ? 'any' : '512x512';
+    const manifest = {
+      name:name, short_name:(name||'EduFlow').slice(0,12), start_url:'.', display:'standalone',
+      background_color:'#0f172a', theme_color:'#6366f1',
+      icons:[{ src:icon, sizes:sizesAttr, type:mime, purpose:'any' }]
+    };
+    const blob = new Blob([JSON.stringify(manifest)],{type:'application/manifest+json'});
+    if(_manifestUrl){ try{ URL.revokeObjectURL(_manifestUrl); }catch(e){} }
+    _manifestUrl = URL.createObjectURL(blob);
+    let mf=document.querySelector('link[rel="manifest"]'); if(!mf){mf=document.createElement('link');mf.rel='manifest';document.head.appendChild(mf);} mf.href=_manifestUrl;
+  }catch(e){ console.warn('[applyBranding]', e); }
 }
 applyBranding();
 
