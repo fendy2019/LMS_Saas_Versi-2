@@ -318,7 +318,7 @@ const authToken = {
  * Ganti GAS_URL dengan URL Web App deploy GAS Anda.
  * apiFetch(action,payload) = async wrapper + retry exponential backoff (max 3x)
  * ============================================================ */
-const GAS_URL = "https://script.google.com/macros/s/AKfycbwKcGhYS5XNy5O_lw4n3W09ixpm4Plh_7F4RN5zduz8Tb6wO82XEizjbsStOSNIGYK-/exec"; // <-- paste URL Web App GAS di sini
+const GAS_URL = "https://script.google.com/macros/s/AKfycbykjSkcolz5ISINKzcQ0tVRtsz8eFqe7fAXozvq90m7nffhU5X0MQFh3Cc6qVbz7FtZWQ/exec"; // <-- paste URL Web App GAS di sini
 const HMAC_SECRET = "1"; // <-- samakan dengan Script Properties HMAC_SECRET di GAS
 const API_ENABLED = () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
 
@@ -385,6 +385,68 @@ function apiSync(action, payload){
   if (!API_ENABLED()) return;
   apiFetch(action, payload, {retries:2}).catch(()=>{});
 }
+
+/* ============================================================
+ * PENYIMPANAN KOLEKSI TERPUSAT (anti data hilang)
+ * Setiap CRUD lokal WAJIB lewat sini agar:
+ *  1) tersimpan ke localStorage (tampil seketika), dan
+ *  2) terkirim & tersimpan ke backend (syncPush), dan
+ *  3) dilindungi dari penimpaan oleh polling authoritative 15 dtk
+ *     sampai server mengonfirmasi (guard "pending push").
+ * ============================================================ */
+const _pendingPush = {};   // name -> timestamp kadaluarsa guard
+const PENDING_TTL = 30000; // 30 dtk: cukup utk push + konfirmasi pull berikutnya
+
+function _markPending(name){ _pendingPush[name] = Date.now() + PENDING_TTL; }
+function _isPending(name){
+  const t = _pendingPush[name];
+  if(!t) return false;
+  if(Date.now() > t){ delete _pendingPush[name]; return false; }
+  return true;
+}
+function _clearPending(name){ delete _pendingPush[name]; }
+
+// Simpan satu koleksi: lokal + backend. Mengembalikan Promise (boleh tidak di-await).
+async function saveCollection(name, arr){
+  DB.set(name, arr);
+  if(!API_ENABLED()) return { ok:true, local:true };
+  _markPending(name);
+  try{
+    const r = await apiFetch('syncPush', { [name]: arr }, { retries:3 });
+    if(r && r.ok){ _clearPending(name); return r; }
+    // gagal push: biarkan guard kadaluarsa sendiri agar pull tak langsung menimpa
+    return r || { ok:false };
+  }catch(e){ return { ok:false, msg:String(e) }; }
+}
+// Simpan beberapa koleksi sekaligus (mis. saat satu aksi mengubah 2 tabel)
+async function saveCollections(obj){
+  Object.entries(obj).forEach(([k,v])=>{ DB.set(k,v); });
+  if(!API_ENABLED()) return { ok:true, local:true };
+  Object.keys(obj).forEach(_markPending);
+  try{
+    const r = await apiFetch('syncPush', obj, { retries:3 });
+    if(r && r.ok){ Object.keys(obj).forEach(_clearPending); return r; }
+    return r || { ok:false };
+  }catch(e){ return { ok:false, msg:String(e) }; }
+}
+/* Tambah/ubah SATU baris pada entity (jalur non-admin utk review, thread, dll).
+ * Memakai handler 'upsert' backend (boleh non-admin utk entity non-admin-only). */
+async function upsertRemote(entity, row){
+  const arr = DB.get(entity, []);
+  const i = arr.findIndex(x=>x.id===row.id);
+  if(i>=0) arr[i] = {...arr[i], ...row}; else arr.unshift(row);
+  DB.set(entity, arr);
+  if(!API_ENABLED()) return { ok:true, local:true };
+  _markPending(entity);
+  try{
+    const r = await apiFetch('upsert', { entity, row }, { retries:3 });
+    if(r && r.ok) _clearPending(entity);
+    return r || { ok:false };
+  }catch(e){ return { ok:false, msg:String(e) }; }
+}
+window.saveCollection = saveCollection;
+window.saveCollections = saveCollections;
+window.upsertRemote = upsertRemote;
 
 /* ===== FILE UPLOAD ke Google Drive via GAS =====
    Contract GAS (Code.gs di sisi Anda harus handle):
@@ -463,6 +525,8 @@ function _applyPull(r){
   const live = Array.isArray(r.data.users) && r.data.users.length>0;
   Object.entries(map).forEach(([k,sk])=>{
     if (Array.isArray(r.data[k])){
+      // Jangan timpa koleksi yang sedang menunggu konfirmasi push lokal (cegah data hilang).
+      if (_isPending(sk)) return;
       // saat live: selalu timpa (termasuk array kosong → hapus lokal). saat belum live: hanya bila ada isi.
       if (live || r.data[k].length) DB.set(sk, r.data[k]);
     }
@@ -483,8 +547,8 @@ function _applyPull(r){
     }
   }
 }
-async function pullFromBackend(silent){
-  const r = await apiFetch('syncPull', {}, {retries:1});
+async function pullFromBackend(silent, opts){
+  const r = await apiFetch('syncPull', (opts&&opts.forceRescan)?{forceRescan:true}:{}, {retries:1});
   _applyPull(r);
   if(r && r.ok && r.data && !silent) toast('Data tersinkron dari server','success');
   return r;
@@ -1274,9 +1338,9 @@ PAGES.courses = el => {
   el.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>courseFormModal(b.dataset.edit));
   el.querySelectorAll('[data-prev]').forEach(b=>b.onclick=()=>openCourse(b.dataset.prev));
   el.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{
-    confirmModal('Hapus kursus ini?', ()=>{
+    confirmModal('Hapus kursus ini?', async ()=>{
       const cs = DB.get('courses',[]).filter(x=>x.id!==b.dataset.del);
-      DB.set('courses',cs); toast('Kursus dihapus','success'); renderPage();
+      await saveCollection('courses',cs); toast('Kursus dihapus','success'); renderPage();
     });
   });
 };
@@ -1304,7 +1368,7 @@ function courseFormModal(id){
     </form>`,
     foot:`<button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn primary" id="saveC">Simpan</button>`
   });
-  $('#saveC').onclick=()=>{
+  $('#saveC').onclick=async ()=>{
     const f = $('#cForm');
     if(!f.title.value.trim() || !f.description.value.trim()){ toast('Lengkapi data','danger'); return; }
     const courses = DB.get('courses',[]);
@@ -1317,7 +1381,7 @@ function courseFormModal(id){
     } else {
       courses.unshift({id:uid('k'),...data,enrolled:0,rating:'5.0',createdAt:Date.now(),modules:[]});
     }
-    DB.set('courses',courses); closeModal(); toast('Tersimpan','success'); renderPage();
+    DB.set('courses',courses); await saveCollection('courses',courses); closeModal(); toast('Tersimpan','success'); renderPage();
   };
 }
 
@@ -1340,8 +1404,8 @@ PAGES.categories = el => {
   `;
   el.querySelector('#add').onclick=()=>catForm();
   el.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>catForm(b.dataset.edit));
-  el.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>confirmModal('Hapus kategori?',()=>{
-    DB.set('categories', DB.get('categories',[]).filter(x=>x.id!==b.dataset.del));
+  el.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>confirmModal('Hapus kategori?',async ()=>{
+    await saveCollection('categories', DB.get('categories',[]).filter(x=>x.id!==b.dataset.del));
     toast('Kategori dihapus','success'); renderPage();
   }));
 };
@@ -1351,12 +1415,13 @@ function catForm(id){
     body:`<form id="catF"><div class="field"><label>Nama Kategori</label><input class="input" name="name" value="${esc(c.name)}" required /></div>${emojiField('icon', c.icon, 'Emoji / Ikon Kategori')}</form>`,
     foot:`<button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn primary" id="cs">Simpan</button>`
   });
-  $('#cs').onclick=()=>{
+  $('#cs').onclick=async ()=>{
     const f=$('#catF'); if(!f.name.value.trim()){toast('Nama wajib','danger');return;}
     const cats = DB.get('categories',[]);
     if(id){ const i=cats.findIndex(x=>x.id===id); cats[i]={...cats[i],name:f.name.value.trim(),icon:f.icon.value||'📁'}; }
     else cats.push({id:uid('c'),name:f.name.value.trim(),icon:f.icon.value||'📁'});
-    DB.set('categories',cats); closeModal(); toast('Tersimpan','success'); renderPage();
+    const btn=$('#cs'); if(btn) btn.disabled=true;
+    await saveCollection('categories',cats); closeModal(); toast('Tersimpan','success'); renderPage();
   };
 }
 
@@ -1401,14 +1466,14 @@ PAGES.modules = el => {
     $$('[data-rm]').forEach(b=>b.onclick=()=>confirmModal('Hapus modul ini?',()=>{
       const cs=DB.get('courses',[]); const ix=cs.findIndex(x=>x.id===cid);
       cs[ix].modules = (cs[ix].modules||[]).filter(m=>m.id!==b.dataset.rm);
-      DB.set('courses',cs); refresh(); toast('Modul dihapus','success');
+      saveCollection('courses',cs); refresh(); toast('Modul dihapus','success');
     }));
     $$('[data-ed]').forEach(b=>b.onclick=()=>moduleForm(cid, b.dataset.ed));
     const move=(id,dir)=>{
       const cs=DB.get('courses',[]); const ix=cs.findIndex(x=>x.id===cid);
       const arr=cs[ix].modules||[]; const i=arr.findIndex(m=>m.id===id); const j=i+dir;
       if(i<0||j<0||j>=arr.length) return;
-      [arr[i],arr[j]]=[arr[j],arr[i]]; DB.set('courses',cs); refresh();
+      [arr[i],arr[j]]=[arr[j],arr[i]]; saveCollection('courses',cs); refresh();
     };
     $$('[data-up]').forEach(b=>b.onclick=()=>move(b.dataset.up,-1));
     $$('[data-dn]').forEach(b=>b.onclick=()=>move(b.dataset.dn,+1));
@@ -1541,7 +1606,7 @@ function moduleForm(cid, mid){
         cs[ix].modules = cs[ix].modules || [];
         cs[ix].modules.push({ id: uid('m'), ...data });
       }
-      DB.set('courses', cs); apiSync('syncPush', { courses: cs });
+      saveCollection('courses', cs);
       closeModal(); toast(mid?'Modul diperbarui':'Modul ditautkan dari Quiz & Assignment','success');
       renderPage(); return;
     }
@@ -1555,7 +1620,7 @@ function moduleForm(cid, mid){
       cs[ix].modules = cs[ix].modules || [];
       cs[ix].modules.push({ id: uid('m'), ...data });
     }
-    DB.set('courses', cs); apiSync('syncPush', { courses: cs });
+    saveCollection('courses', cs);
     closeModal(); toast(mid?'Modul diperbarui':'Modul ditambahkan','success');
     renderPage();
   };
@@ -1662,9 +1727,9 @@ function materialForm(id){
       arr.unshift({ id:matId, title, description:desc, type:r.data.type, fileId:r.data.fileId, url:r.data.url, viewUrl:r.data.viewUrl||r.data.url, size:r.data.size||file.size, mime:file.type, uploadedAt:Date.now(), source:r.data.fallback?'local':'upload', fallback:!!r.data.fallback });
     DB.set('materials', arr);
     if(API_ENABLED()){
-      // Tarik ulang dari server agar materi yang sudah tercatat di sheet pasti tampil (hindari race poll 15s).
+      // Tarik ulang dari server (paksa rescan Drive) agar materi yang baru tercatat pasti tampil.
       $('#matStatus').innerHTML = '<span style="color:var(--info)">🔄 Menyinkron dari server...</span>';
-      try{ await pullFromBackend(true); }catch(e){}
+      try{ await pullFromBackend(true, {forceRescan:true}); }catch(e){}
     } else {
       apiSync('syncPush',{materials:arr});
     }
@@ -2733,15 +2798,15 @@ PAGES.coupons = el => {
       </form>`,
       foot:`<button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn primary" id="cs">Tambah</button>`
     });
-    $('#cs').onclick=()=>{
+    $('#cs').onclick=async ()=>{
       const f=$('#cf'); if(!f.code.value||!f.value.value||!f.exp.value){toast('Lengkapi data','danger');return;}
       const cps=DB.get('coupons',[]);
       cps.push({id:uid('cp'),code:f.code.value.toUpperCase(),type:f.type.value,value:+f.value.value,expiry:new Date(f.exp.value).getTime(),active:true});
-      DB.set('coupons',cps); closeModal(); toast('Kupon dibuat','success'); renderPage();
+      await saveCollection('coupons',cps); closeModal(); toast('Kupon dibuat','success'); renderPage();
     };
   };
-  el.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>confirmModal('Hapus kupon?',()=>{
-    DB.set('coupons',DB.get('coupons',[]).filter(x=>x.id!==b.dataset.del)); toast('Dihapus','success'); renderPage();
+  el.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>confirmModal('Hapus kupon?',async ()=>{
+    await saveCollection('coupons',DB.get('coupons',[]).filter(x=>x.id!==b.dataset.del)); toast('Dihapus','success'); renderPage();
   }));
 };
 
@@ -3160,7 +3225,7 @@ PAGES.notifications = el => {
     const users = DB.get('users',[]).filter(u=>u.role==='student');
     const notifs = DB.get('notifications',[]);
     users.forEach(u=>notifs.push({id:uid('n'),userId:u.id,title:f.title.value,body:f.body.value,read:false,createdAt:Date.now()}));
-    DB.set('notifications',notifs);
+    saveCollection('notifications',notifs);
     // Try push
     if('Notification' in window && Notification.permission==='granted'){
       new Notification(f.title.value,{body:f.body.value});
@@ -3471,11 +3536,10 @@ window.reviewForm=(cid)=>{
       </form>`,
       foot:`<button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn primary" id="rs">Kirim</button>`
     });
-    $('#rs').onclick=()=>{
+    $('#rs').onclick=async ()=>{
       const f=$('#rf'); if(f.t.value.trim().length<10){toast('Review minimal 10 karakter','danger');return;}
-      const rv=DB.get('reviews',[]);
-      rv.push({id:uid('rv'),courseId:cid,userId:state.user.id,userName:state.user.name,rating:+f.r.value,text:f.t.value.trim(),createdAt:Date.now(),approved:true});
-      DB.set('reviews',rv); closeModal(); toast('Review terkirim','success');
+      const review={id:uid('rv'),courseId:cid,userId:state.user.id,userName:state.user.name,rating:+f.r.value,text:f.t.value.trim(),createdAt:Date.now(),approved:true};
+      await upsertRemote('reviews',review); closeModal(); toast('Review terkirim','success');
     };
   },200);
 };
@@ -3753,10 +3817,10 @@ PAGES.forum = el => {
       </form>`,
       foot:`<button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn primary" id="ts">Posting</button>`
     });
-    $('#ts').onclick=()=>{
+    $('#ts').onclick=async ()=>{
       const f=$('#tf');if(!f.title.value.trim()){toast('Judul wajib','danger');return;}
-      const ts=DB.get('threads',[]); ts.unshift({id:uid('th'),courseId:f.cid.value,userId:state.user.id,userName:state.user.name,title:f.title.value,body:f.body.value,replies:[],likes:0,createdAt:Date.now()});
-      DB.set('threads',ts); closeModal(); toast('Thread dibuat','success'); renderPage();
+      const thread={id:uid('th'),courseId:f.cid.value,userId:state.user.id,userName:state.user.name,title:f.title.value,body:f.body.value,replies:[],likes:0,createdAt:Date.now()};
+      await upsertRemote('threads',thread); closeModal(); toast('Thread dibuat','success'); renderPage();
     };
   };
   el.querySelectorAll('.thread').forEach(t=>t.onclick=()=>openThread(t.dataset.id));
@@ -3777,13 +3841,13 @@ function openThread(id){
   });
 }
 window.likeThread=(id)=>{
-  const ts=DB.get('threads',[]); const ix=ts.findIndex(x=>x.id===id); ts[ix].likes++; DB.set('threads',ts); openThread(id);
+  const ts=DB.get('threads',[]); const ix=ts.findIndex(x=>x.id===id); if(ix<0)return; ts[ix].likes++; upsertRemote('threads',ts[ix]); openThread(id);
 };
 window.replyThread=(id)=>{
   const txt = $('#rep').value.trim(); if(!txt){toast('Tulis balasan','danger');return;}
-  const ts=DB.get('threads',[]); const ix=ts.findIndex(x=>x.id===id);
+  const ts=DB.get('threads',[]); const ix=ts.findIndex(x=>x.id===id); if(ix<0)return;
   ts[ix].replies.push({userId:state.user.id,userName:state.user.name,body:txt,likes:0,createdAt:Date.now()});
-  DB.set('threads',ts); toast('Balasan terkirim','success'); openThread(id);
+  upsertRemote('threads',ts[ix]); toast('Balasan terkirim','success'); openThread(id);
 };
 
 PAGES.mycerts = el => {
@@ -4018,7 +4082,9 @@ PAGES.mynotif = el => {
   `;
   el.querySelector('#ra').onclick=()=>{
     const all = DB.get('notifications',[]).map(n=>n.userId===state.user.id?{...n,read:true}:n);
-    DB.set('notifications',all); toast('Ditandai dibaca','success'); renderPage();
+    DB.set('notifications',all);
+    all.filter(n=>n.userId===state.user.id).forEach(n=>upsertRemote('notifications',n));
+    toast('Ditandai dibaca','success'); renderPage();
   };
 };
 
