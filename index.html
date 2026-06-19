@@ -2641,7 +2641,7 @@ const PAYMENT_GATEWAYS = [
 function defaultPaySettings(){
   return {
     gateways: {},     // {midtrans:{enabled,mode,...creds}}
-    qris: { enabled:false, merchantName:'', imageUrl:'', dataUrl:'', instructions:'Scan QR di bawah lalu konfirmasi pembayaran via WhatsApp.' },
+    qris: { enabled:false, merchantName:'', imageUrl:'', dataUrl:'', fileId:'', instructions:'Scan QR di bawah lalu konfirmasi pembayaran via WhatsApp.' },
     bank: { enabled:false, bankName:'', accountNumber:'', accountName:'' },
   };
 }
@@ -2654,6 +2654,23 @@ function getPaySettings(){
     qris:     { ...d.qris, ...(s.qris||{}) },
     bank:     { ...d.bank, ...(s.bank||{}) },
   };
+}
+/* Sumber gambar QRIS yang paling andal untuk <img>:
+ *  1) URL manual yang diketik admin (imageUrl)
+ *  2) fileId Drive → endpoint thumbnail (render andal di <img>, beda dgn uc?export=view)
+ *  3) dataUrl (data URL base64 lokal, atau URL Drive lama)
+ * Mengembalikan '' bila belum ada gambar. */
+function qrisImageSrc(q){
+  if(!q) return '';
+  if(q.imageUrl && /^https?:\/\//.test(q.imageUrl)) return q.imageUrl;
+  if(q.fileId) return 'https://drive.google.com/thumbnail?id='+encodeURIComponent(q.fileId)+'&sz=w600';
+  // dari dataUrl: jika ternyata URL Drive uc?...id=XXX, ubah ke thumbnail; selain itu pakai apa adanya.
+  if(q.dataUrl){
+    const m = String(q.dataUrl).match(/[?&]id=([A-Za-z0-9_\-]+)/);
+    if(m) return 'https://drive.google.com/thumbnail?id='+m[1]+'&sz=w600';
+    return q.dataUrl;
+  }
+  return '';
 }
 async function savePaySettings(s){ DB.set('paymentSettings',s); _markObjDirty('paymentSettings'); return saveCollectionObj('paymentSettings',s); }
 
@@ -2724,9 +2741,11 @@ PAGES.payment = el => {
           </div>
         </div>`;
         const renderPrev=()=>{
-          const src = $('#qrF').imageUrl.value || s.qris.dataUrl || '';
+          const typed = $('#qrF').imageUrl.value.trim();
+          // gunakan URL yang diketik bila ada; jika tidak, ambil dari qris (fileId/dataUrl) via helper
+          const src = (typed && /^https?:\/\//.test(typed)) ? typed : qrisImageSrc(s.qris);
           $('#qrPrev').innerHTML = src
-            ? `<img src="${esc(src)}" alt="QRIS" style="max-width:100%;max-height:300px;border-radius:8px"/>
+            ? `<img src="${esc(src)}" alt="QRIS" referrerpolicy="no-referrer" style="max-width:100%;max-height:300px;border-radius:8px;display:block;margin:0 auto" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('div'),{className:'empty',textContent:'Gambar QRIS gagal dimuat'}))"/>
                <div style="margin-top:8px"><b>${esc($('#qrF').merchantName.value||s.qris.merchantName||'Merchant')}</b></div>
                <div class="muted text-sm">${esc($('#qrF').instructions.value||'')}</div>`
             : '<div class="empty">Belum ada gambar QRIS</div>';
@@ -2739,8 +2758,9 @@ PAGES.payment = el => {
             toast('Mengupload QRIS ke Drive...','info');
             const r = await uploadToDrive(f, {title:'QRIS '+(s.qris.merchantName||'')});
             if(r && r.ok && r.data && !r.data.fallback){
-              s.qris.dataUrl = r.data.viewUrl ? ('https://drive.google.com/uc?export=view&id='+r.data.fileId) : r.data.url;
-              s.qris.fileId = r.data.fileId;
+              s.qris.fileId = r.data.fileId;                 // sumber utama render (thumbnail Drive)
+              s.qris.dataUrl = '';                            // tak perlu uc-URL yg sering gagal di <img>
+              s.qris.imageUrl = '';
               $('#qrF').imageUrl.value = '';
               renderPrev(); toast('QRIS terupload ke Drive (klik Simpan)','success');
             } else {
@@ -2757,16 +2777,20 @@ PAGES.payment = el => {
             reader.readAsDataURL(f);
           }
         };
-        $('#qrSave').onclick=()=>{
+        $('#qrSave').onclick=async ()=>{
           const f=$('#qrF');
+          const typedUrl = f.imageUrl.value.trim();
           s.qris = {
             enabled:f.enabled.checked,
             merchantName:f.merchantName.value,
-            imageUrl:f.imageUrl.value,
-            dataUrl: f.imageUrl.value ? '' : s.qris.dataUrl,
+            imageUrl: typedUrl,                                  // URL manual (opsional)
+            dataUrl: typedUrl ? '' : (s.qris.dataUrl||''),       // hasil upload Drive/lokal
+            fileId: typedUrl ? '' : (s.qris.fileId||''),         // simpan fileId Drive utk render andal
             instructions:f.instructions.value,
           };
-          savePaySettings(s); toast('QRIS tersimpan','success'); draw();
+          const btn=$('#qrSave'); if(btn) btn.disabled=true;
+          await savePaySettings(s);
+          toast('QRIS tersimpan','success'); draw();
         };
         renderPrev();
       } else if(tab==='bank'){
@@ -4104,11 +4128,12 @@ function checkout(items, total){
     if(method.mode==='manual'){
       const isQris = gw==='qris';
       const info = isQris?s.qris:s.bank;
+      const qrSrc = isQris ? qrisImageSrc(info) : '';
       const body = isQris
         ? `<div class="center">
             <b class="text-lg">📱 Scan QRIS untuk Bayar</b>
             <div class="muted text-sm">${esc(info.merchantName||'')}</div>
-            ${info.imageUrl||info.dataUrl?`<img src="${esc(info.dataUrl||info.imageUrl)}" alt="QRIS" style="max-width:260px;margin:14px auto;border:1px solid var(--border);border-radius:8px"/>`:'<div class="empty">Gambar QRIS belum diset admin</div>'}
+            ${qrSrc?`<img src="${esc(qrSrc)}" alt="QRIS" referrerpolicy="no-referrer" loading="lazy" style="max-width:260px;margin:14px auto;border:1px solid var(--border);border-radius:8px;display:block" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('div'),{className:'empty',textContent:'Gambar QRIS gagal dimuat'}))"/>`:'<div class="empty">Gambar QRIS belum diset admin</div>'}
             <div class="card" style="text-align:left;background:var(--surface-2);margin-top:8px">
               <b>📋 Instruksi</b>
               <p class="muted text-sm" style="white-space:pre-wrap;margin-top:4px">${esc(info.instructions||'')}</p>
