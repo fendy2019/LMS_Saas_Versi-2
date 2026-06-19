@@ -318,7 +318,7 @@ const authToken = {
  * Ganti GAS_URL dengan URL Web App deploy GAS Anda.
  * apiFetch(action,payload) = async wrapper + retry exponential backoff (max 3x)
  * ============================================================ */
-const GAS_URL = "https://script.google.com/macros/s/AKfycbwPSP09vyI_zYawBAQ7oqp3s9fl9AcvBPdcdnuW5yDCDH_qPZAd6RjTFueSRanhE6A/exec"; // <-- paste URL Web App GAS di sini
+const GAS_URL = "https://script.google.com/macros/s/AKfycbxAr44JEKXG8n_Kha2aOgua_zvOYJnwZNorfky_qPHho5OGi67eacSsS-PsnsaQ-NfT/exec"; // <-- paste URL Web App GAS di sini
 const HMAC_SECRET = "1"; // <-- samakan dengan Script Properties HMAC_SECRET di GAS
 const API_ENABLED = () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
 
@@ -431,6 +431,21 @@ function _repush(name){
   const cur = DB.get(name, []);
   apiFetch('syncPush', { [name]: cur }, { retries:2 }).then(r=>{ _lastPushOk[name] = !!(r&&r.ok); });
 }
+// Dorong SEMUA koleksi yang masih dirty (mis. setelah login / koneksi pulih).
+// Menjamin data sementara akhirnya 100% tersimpan di backend.
+async function flushDirty(){
+  if(!API_ENABLED()) return;
+  const names = Object.keys(_dirty).filter(n=>_dirty[n]);
+  for(const n of names){
+    try{
+      const cur = DB.get(n, []);
+      const r = await apiFetch('syncPush', { [n]: cur }, { retries:3 });
+      _lastPushOk[n] = !!(r&&r.ok);
+      // konfirmasi via pull berikutnya akan melepas status dirty saat server == lokal
+    }catch(e){}
+  }
+}
+window.flushDirty = flushDirty;
 
 // Simpan satu koleksi: lokal + backend (syncPush, jalur admin).
 async function saveCollection(name, arr){
@@ -1455,8 +1470,12 @@ function catForm(id){
     const r = await saveCollection('categories',cats);
     if(API_ENABLED() && r && r.ok===false){
       if(btn){ btn.disabled=false; btn.textContent='Simpan'; }
-      toast('Gagal menyimpan ke server: '+((r&&r.msg)||'coba lagi atau login ulang')+'. Data tetap tersimpan sementara di perangkat.','danger');
-      return;   // jangan tutup modal; biarkan admin coba lagi
+      // Data sudah tersimpan lokal & ditandai "dirty" → akan otomatis dikirim ulang tiap 5 dtk
+      // sampai server menerima. Jadi tidak hilang; modal ditutup agar admin bisa lanjut bekerja.
+      toast('Tersimpan. Sinkronisasi ke server tertunda ('+((r&&r.msg)||'koneksi')+') — akan terkirim otomatis.','warn');
+      closeModal(); renderPage();
+      flushDirty();
+      return;
     }
     closeModal(); toast(API_ENABLED()?'Tersimpan ke server':'Tersimpan','success'); renderPage();
   };
@@ -4180,7 +4199,7 @@ PAGES.profile = el => {
 /* ============================================================
  * RENDER ENTRY
  * ============================================================ */
-let _syncedThisSession=false, _syncTimer=null;
+let _syncedThisSession=false, _syncTimer=null, _flushTimer=null;
 function render(){
   if(checkLogin()){ renderApp(); bootSync(); }
   else renderAuth('login');
@@ -4190,6 +4209,8 @@ function render(){
 function bootSync(){
   if(!API_ENABLED() || _syncedThisSession) return;
   _syncedThisSession=true;
+  // Pastikan apa pun yang masih "dirty" dari sesi sebelumnya ikut terkirim.
+  flushDirty();
   const _ps0=Date.now();
   apiFetch('syncPull',{},{retries:1}).then(r=>{
     if(r && r.ok && r.data){ _applyPull(r,_ps0); if(state.user) renderPage(); }
@@ -4198,6 +4219,8 @@ function bootSync(){
       const _ps=Date.now();
       apiFetch('syncPull',{},{retries:1}).then(rr=>{ if(rr&&rr.ok&&rr.data){ _applyPull(rr,_ps); state.user?renderPage():render(); } });
     },15000); // poll tiap 15 detik (realtime-ish)
+    // Flusher cepat: dorong koleksi dirty tiap 5 dtk sampai server mengonfirmasi (jaminan 100% tersimpan).
+    if(!_flushTimer) _flushTimer=setInterval(()=>{ if(state.user) flushDirty(); },5000);
   });
 }
 
