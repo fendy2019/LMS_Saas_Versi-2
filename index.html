@@ -3755,21 +3755,34 @@ window.openModule = (cid,mid)=>{
   const noSel = 'user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-user-drag:none;';
   let body='';
   if(m.type==='video'){
-    body = `<div class="vp" id="vp" style="${noSel}position:relative" oncontextmenu="return false">
-      <div class="play" id="playBtn"><svg width="30" height="30" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg></div>
-      <div style="${wmStyle}">${wmText}</div>
-      <div class="controls">
-        <button id="pp">▶</button>
-        <div class="progress" id="pg"><div class="bar" id="pb"></div></div>
-        <span id="tm">0:00 / ${m.duration||'10:00'}</span>
-        <select id="spd" style="background:rgba(255,255,255,.2);color:#fff;border:0;border-radius:4px;padding:4px 6px">
-          <option value="0.5">0.5x</option><option value="1" selected>1x</option><option value="1.5">1.5x</option><option value="2">2x</option>
-        </select>
-        <button id="fs">⛶</button>
-      </div>
-    </div>
-    <div class="muted text-sm mt-1">🔒 Video hanya untuk ditonton. Download & screen-capture tidak diizinkan.</div>
-    <p class="mt-2" style="${noSel}">${esc(m.content||'')}</p>`;
+    const vsrc = videoEmbed_(m);   // {kind:'drive'|'embed'|'file'|'none', src}
+    if(vsrc.kind==='file'){
+      // Video file langsung (mp4/webm) → pemutar HTML5 native
+      body = `<div style="position:relative;${noSel}" oncontextmenu="return false">
+        <div style="position:relative;width:100%;background:#000;border-radius:10px;overflow:hidden">
+          <video controls controlslist="nodownload" oncontextmenu="return false" style="width:100%;max-height:70vh;display:block" src="${esc(vsrc.src)}"></video>
+          <div style="${wmStyle}">${wmText}</div>
+        </div>
+        <div class="muted text-sm mt-1">🔒 Streaming only — download dinonaktifkan.</div>
+        <p class="mt-2" style="${noSel}">${esc(m.content||'')}</p>`;
+    } else if(vsrc.kind==='drive' || vsrc.kind==='embed'){
+      // Google Drive / YouTube / Vimeo → iframe embed
+      body = `<div style="position:relative;${noSel}" oncontextmenu="return false">
+        <div style="position:relative;width:100%;height:70vh;background:#000;border-radius:10px;overflow:hidden">
+          <iframe src="${esc(vsrc.src)}" style="width:100%;height:100%;border:0" allow="autoplay; fullscreen; encrypted-media" allowfullscreen sandbox="allow-scripts allow-same-origin allow-popups allow-presentation"></iframe>
+          <div style="${wmStyle}">${wmText}</div>
+        </div>
+        <div class="muted text-sm mt-1">🔒 Video hanya untuk ditonton. Download dinonaktifkan.</div>
+        <p class="mt-2" style="${noSel}">${esc(m.content||'')}</p>`;
+    } else {
+      // Tidak ada sumber video yang diset di modul
+      body = `<div class="card" style="text-align:center;padding:50px 20px">
+        <div style="font-size:56px">🎬</div>
+        <b class="text-lg">${esc(m.title)}</b>
+        <p class="muted mt-1">Video belum diatur untuk modul ini. Admin/instruktur dapat menambahkannya di halaman Modul Pelajaran (Upload File / Insert Link / Bank Materi).</p>
+        ${m.content?`<p class="mt-2" style="${noSel}">${esc(m.content)}</p>`:''}
+      </div>`;
+    }
   } else if(m.type==='pdf'){
     // Reading-view PDF: render via Google Drive preview iframe when fileId/url is available, otherwise placeholder
     const driveId = m.fileId || (m.url && (m.url.match(/\/d\/([^/]+)/)?.[1] || m.url.match(/[?&]id=([^&]+)/)?.[1])) || '';
@@ -3813,23 +3826,36 @@ window.openModule = (cid,mid)=>{
   // Tear down guard when modal closes
   const mo = new MutationObserver(()=>{ if(!document.querySelector('.modal-backdrop')){ _viewerGuard(false); mo.disconnect(); } });
   mo.observe(document.body,{childList:true,subtree:false});
-  if(m.type==='video') setupVideo();
 };
 
-function setupVideo(){
-  let playing=false, cur=0, dur=600, speed=1, intv;
-  const pb=$('#pb'),tm=$('#tm'),pp=$('#pp'),vp=$('#vp');
-  const upd=()=>{pb.style.width=(cur/dur*100)+'%';tm.textContent=fmtTime(cur)+' / '+fmtTime(dur);};
-  const toggle=()=>{playing=!playing;pp.textContent=playing?'⏸':'▶';$('#playBtn').style.display=playing?'none':'';
-    if(playing){intv=setInterval(()=>{cur+=speed;if(cur>=dur){cur=dur;clearInterval(intv);playing=false;pp.textContent='▶';$('#playBtn').style.display='';}upd();},1000);}
-    else clearInterval(intv);
-  };
-  $('#playBtn').onclick=toggle; pp.onclick=toggle;
-  $('#pg').onclick=e=>{const r=e.currentTarget.getBoundingClientRect();cur=(e.clientX-r.left)/r.width*dur;upd();};
-  $('#spd').onchange=e=>speed=+e.target.value;
-  $('#fs').onclick=()=>{if(!document.fullscreenElement)vp.requestFullscreen?.();else document.exitFullscreen?.();};
+/* Tentukan cara menampilkan video dari modul:
+ *  - file   : URL video langsung (mp4/webm/ogg/mov) → <video>
+ *  - drive  : file Google Drive (fileId / URL Drive) → iframe /preview
+ *  - embed  : YouTube / Vimeo → iframe embed
+ *  - none   : tidak ada sumber
+ * Mengambil sumber dari m.url, m.viewUrl, atau m.fileId. */
+function videoEmbed_(m){
+  const raw = (m && (m.url || m.viewUrl || '')) + '';
+  const fileId = (m && m.fileId) || '';
+  // 1) Google Drive (fileId eksplisit atau pola URL Drive)
+  const driveId = fileId
+    || (raw.match(/\/d\/([A-Za-z0-9_\-]+)/)||[])[1]
+    || (raw.match(/[?&]id=([A-Za-z0-9_\-]+)/)||[])[1]
+    || '';
+  if(driveId) return { kind:'drive', src:'https://drive.google.com/file/d/'+driveId+'/preview' };
+  // 2) YouTube
+  let yt = (raw.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([A-Za-z0-9_\-]{6,})/)||[])[1];
+  if(yt) return { kind:'embed', src:'https://www.youtube.com/embed/'+yt };
+  // 3) Vimeo
+  const vm = (raw.match(/vimeo\.com\/(?:video\/)?(\d+)/)||[])[1];
+  if(vm) return { kind:'embed', src:'https://player.vimeo.com/video/'+vm };
+  // 4) File video langsung
+  if(raw && /\.(mp4|webm|ogg|ogv|mov|m4v)(\?|#|$)/i.test(raw)) return { kind:'file', src:raw };
+  // 5) URL lain yang ada → coba sebagai iframe embed umum
+  if(raw && /^https?:\/\//.test(raw)) return { kind:'embed', src:raw };
+  return { kind:'none', src:'' };
 }
-function fmtTime(s){s=Math.floor(s);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');}
+window.videoEmbed_ = videoEmbed_;
 window.markComplete = async (cid,mid,silent)=>{
   // KEAMANAN: saat backend aktif, SERVER menyimpan & menghitung progress (cek enrolment).
   if (API_ENABLED()){
