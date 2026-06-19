@@ -654,13 +654,13 @@ const EMOJI_LIST = [
 window.emojiField = function(name, value, label){
   const fid = 'ef_'+Math.random().toString(36).slice(2,8);
   const v = value || '📘';
-  return `<div class="field"><label>${esc(label||'Emoji / Ikon')}</label>
+  return `<div class="field"><label for="${fid}">${esc(label||'Emoji / Ikon')}</label>
     <div style="display:flex;gap:6px;align-items:stretch">
-      <input id="${fid}" class="input" name="${name}" maxlength="2" value="${esc(v)}" style="flex:0 0 80px;font-size:22px;text-align:center"/>
+      <input id="${fid}" class="input" name="${name}" maxlength="2" value="${esc(v)}" autocomplete="off" style="flex:0 0 80px;font-size:22px;text-align:center"/>
       <button type="button" class="btn ghost" onclick="toggleEmojiPicker('${fid}')" style="flex:1;justify-content:flex-start;gap:6px">😊 Pilih / Insert emoji</button>
     </div>
     <div id="${fid}_p" style="display:none;margin-top:8px;padding:10px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2);max-height:240px;overflow:auto">
-      <input type="text" class="input" placeholder="Cari emoji (mis. star, fire)..." oninput="filterEmojiPicker('${fid}',this.value)" style="margin-bottom:8px"/>
+      <input type="text" id="${fid}_s" name="${name}_search" class="input" placeholder="Cari emoji (mis. star, fire)..." autocomplete="off" aria-label="Cari emoji" oninput="filterEmojiPicker('${fid}',this.value)" style="margin-bottom:8px"/>
       <div id="${fid}_g" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(40px,1fr));gap:4px">
         ${EMOJI_LIST.map(e=>`<button type="button" class="emoji-pick" data-e="${e}" onclick="pickEmoji('${fid}','${e}')" title="${e}" style="font-size:22px;padding:6px;background:var(--surface);border:1px solid transparent;border-radius:8px;cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor='var(--primary)';this.style.transform='scale(1.15)'" onmouseout="this.style.borderColor='transparent';this.style.transform='scale(1)'">${e}</button>`).join('')}
       </div>
@@ -1438,7 +1438,7 @@ PAGES.categories = el => {
 function catForm(id){
   const c = id?DB.get('categories',[]).find(x=>x.id===id):{name:'',icon:'📁'};
   modal({title:id?'Edit Kategori':'Tambah Kategori',
-    body:`<form id="catF"><div class="field"><label>Nama Kategori</label><input class="input" name="name" value="${esc(c.name)}" required /></div>${emojiField('icon', c.icon, 'Emoji / Ikon Kategori')}</form>`,
+    body:`<form id="catF"><div class="field"><label for="catName">Nama Kategori</label><input id="catName" class="input" name="name" value="${esc(c.name)}" required autocomplete="off" /></div>${emojiField('icon', c.icon, 'Emoji / Ikon Kategori')}</form>`,
     foot:`<button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn primary" id="cs">Simpan</button>`
   });
   $('#cs').onclick=async ()=>{
@@ -4260,8 +4260,9 @@ function applyBranding(){
     let at=document.querySelector('link[rel="apple-touch-icon"]'); if(!at){at=document.createElement('link');at.rel='apple-touch-icon';document.head.appendChild(at);} at.href=icon;
     // manifest (selalu valid; ikon SVG memakai sizes:"any")
     const sizesAttr = (mime==='image/svg+xml') ? 'any' : '512x512';
+    const startUrl = (location.origin && location.origin!=='null') ? (location.origin + location.pathname) : location.href;
     const manifest = {
-      name:name, short_name:(name||'EduFlow').slice(0,12), start_url:'.', display:'standalone',
+      name:name, short_name:(name||'EduFlow').slice(0,12), start_url:startUrl, scope:startUrl, display:'standalone',
       background_color:'#0f172a', theme_color:'#6366f1',
       icons:[{ src:icon, sizes:sizesAttr, type:mime, purpose:'any' }]
     };
