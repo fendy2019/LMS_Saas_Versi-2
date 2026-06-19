@@ -2590,42 +2590,77 @@ PAGES.transactions = el => {
           <td><span class="badge ${t.status==='success'?'success':t.status==='pending'?'warn':t.status==='refund'?'info':'danger'}">${t.status}</span></td>
           <td>${fmtDate(t.createdAt)}</td>
           <td>
-            ${t.status==='pending'?'<button class="btn sm primary" data-ap="'+t.id+'">Approve</button>':''}
-            ${t.status==='success'?'<button class="btn sm danger" data-rf="'+t.id+'">Refund</button>':''}
+            ${t.status==='pending'?`<button class="btn sm primary" data-ap="${t.id}">Approve</button>`:''}
+            ${t.status==='success'?`<button class="btn sm danger" data-rf="${t.id}">Refund</button>`:''}
           </td></tr>
         `).join('')}</tbody>
       </table></div>
     `;
     el.querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{filter=b.dataset.f;render();});
+
+    // APPROVE — wajib verifikasi password admin → status pending menjadi success (via backend)
     el.querySelectorAll('[data-ap]').forEach(b=>b.onclick=()=>{
-      const ts=DB.get('transactions',[]); const ix=ts.findIndex(x=>x.id===b.dataset.ap);
-      if(ix>=0) {
-        ts[ix].status='success'; DB.set('transactions',ts); toast('Transaksi di-approve','success'); render();
-      }
-    });
-    el.querySelectorAll('[data-rf]').forEach(b=>b.onclick=()=>{
-      modal({
-        title: 'Verifikasi Refund',
-        body: `<p>Masukkan password admin Anda untuk memproses pengembalian uang:</p>
-               <input type="password" class="input mt-2" id="rfPw" placeholder="Password verifikasi" />`,
-        foot: `<button class="btn ghost" onclick="closeModal()">Batal</button>
-               <button class="btn danger" id="btnRfConfirm">Konfirmasi Refund</button>`
-      });
-      $('#btnRfConfirm').onclick = () => {
-        if ($('#rfPw').value === state.user.password) {
-          const ts=DB.get('transactions',[]); const ix=ts.findIndex(x=>x.id===b.dataset.rf);
-          if(ix>=0) {
-            ts[ix].status='refund'; DB.set('transactions',ts); toast('Refund berhasil, uang kursus kembali ke peserta','success'); render();
-          }
-          closeModal();
+      const id = b.dataset.ap;
+      verifyPasswordModal('Verifikasi Approve', 'Masukkan password admin untuk menyetujui transaksi ini:', async ()=>{
+        if(API_ENABLED()){
+          const r = await apiFetch('confirmPayment', { id });
+          if(r && r.ok){ await pullFromBackend(true); toast('Transaksi di-approve & peserta otomatis terdaftar','success'); render(); }
+          else { toast((r&&r.msg)||'Gagal approve','danger'); }
         } else {
-          toast('Password salah, status tidak berubah','danger');
+          const ts=DB.get('transactions',[]); const ix=ts.findIndex(x=>x.id===id);
+          if(ix>=0){ ts[ix].status='success'; ts[ix].confirmedAt=Date.now(); await saveCollection('transactions',ts); toast('Transaksi di-approve','success'); render(); }
         }
-      };
+      });
+    });
+
+    // REFUND — wajib verifikasi password admin → status success menjadi refund (via backend)
+    el.querySelectorAll('[data-rf]').forEach(b=>b.onclick=()=>{
+      const id = b.dataset.rf;
+      verifyPasswordModal('Verifikasi Refund', 'Masukkan password admin untuk memproses pengembalian uang:', async ()=>{
+        if(API_ENABLED()){
+          const r = await apiFetch('refundPayment', { id });
+          if(r && r.ok){ await pullFromBackend(true); toast('Refund berhasil','success'); render(); }
+          else { toast((r&&r.msg)||'Gagal refund','danger'); }
+        } else {
+          const ts=DB.get('transactions',[]); const ix=ts.findIndex(x=>x.id===id);
+          if(ix>=0){ ts[ix].status='refund'; ts[ix].refundedAt=Date.now(); await saveCollection('transactions',ts); toast('Refund berhasil','success'); render(); }
+        }
+      }, 'danger');
     });
   };
   render();
 };
+
+/* Modal verifikasi password admin untuk aksi sensitif (approve/refund).
+ * Password diverifikasi di SERVER (terhadap hash), tidak ada plaintext di klien. */
+function verifyPasswordModal(title, message, onVerified, btnStyle){
+  modal({
+    title: title,
+    body: `<p>${esc(message)}</p>
+           <input type="password" class="input mt-2" id="vpPw" placeholder="Password admin" autocomplete="current-password"/>
+           <div id="vpErr" class="text-sm" style="color:var(--danger);margin-top:6px"></div>`,
+    foot: `<button class="btn ghost" onclick="closeModal()">Batal</button>
+           <button class="btn ${btnStyle||'primary'}" id="vpConfirm">Konfirmasi</button>`
+  });
+  setTimeout(()=>{ const i=$('#vpPw'); if(i) i.focus(); },50);
+  const doVerify = async ()=>{
+    const pw = $('#vpPw') ? $('#vpPw').value : '';
+    if(!pw){ $('#vpErr').textContent='Password wajib diisi'; return; }
+    const btn=$('#vpConfirm'); if(btn){ btn.disabled=true; btn.textContent='Memverifikasi...'; }
+    let ok=false;
+    if(API_ENABLED()){
+      const r = await apiFetch('verifyPassword', { password: pw });
+      ok = !!(r && r.ok);
+    } else {
+      // mode offline: bandingkan dengan password lokal bila ada (akun demo)
+      ok = !!(state.user && state.user.password && state.user.password===pw);
+    }
+    if(ok){ closeModal(); onVerified(); }
+    else { if($('#vpErr')) $('#vpErr').textContent='Password salah'; if(btn){ btn.disabled=false; btn.textContent='Konfirmasi'; } }
+  };
+  $('#vpConfirm').onclick = doVerify;
+  const pwInput=$('#vpPw'); if(pwInput) pwInput.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); doVerify(); } };
+}
 
 /* ---- Payment Gateway ---- */
 /* ============= BATCH 6: Payment Gateway (redesign + QRIS static) ============= */
