@@ -2748,8 +2748,9 @@ PAGES.payment = el => {
 
       <div id="payPanel"></div>
     `;
-    let tab = 'gateways';
+    let tab = state._payTab || 'gateways';   // pertahankan tab aktif lintas re-render (poll 15 dtk)
     const renderTab=()=>{
+      state._payTab = tab;                    // simpan agar tidak reset saat renderPage() dipanggil poll
       $$('#payTabs button').forEach(b=>b.classList.toggle('active', b.dataset.t===tab));
       const panel = $('#payPanel');
       if(tab==='gateways'){
@@ -4433,6 +4434,14 @@ function render(){
 }
 // Sinkronisasi dari Spreadsheet/Drive. Data HANYA berada di backend — frontend tidak pernah
 // mengunggah data awal (tidak ada lagi seed/demo lokal). Selalu tarik dari server.
+function _isUserBusy(){
+  // Ada modal terbuka?
+  if(document.querySelector('.modal-backdrop')) return true;
+  // Sedang fokus mengetik di input/textarea/select?
+  const a = document.activeElement;
+  if(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return true;
+  return false;
+}
 function bootSync(){
   if(!API_ENABLED() || _syncedThisSession) return;
   _syncedThisSession=true;
@@ -4444,7 +4453,15 @@ function bootSync(){
     if(!_syncTimer) _syncTimer=setInterval(()=>{
       if(!state.user) return;
       const _ps=Date.now();
-      apiFetch('syncPull',{},{retries:1}).then(rr=>{ if(rr&&rr.ok&&rr.data){ _applyPull(rr,_ps); state.user?renderPage():render(); } });
+      apiFetch('syncPull',{},{retries:1}).then(rr=>{
+        if(rr&&rr.ok&&rr.data){
+          _applyPull(rr,_ps);
+          // Jangan render ulang bila ada modal terbuka atau pengguna sedang mengisi form
+          // (mencegah halaman QRIS/Bank/form ter-reset di tengah pengeditan).
+          if(_isUserBusy()) return;
+          state.user?renderPage():render();
+        }
+      });
     },15000); // poll tiap 15 detik (realtime-ish)
     // Flusher cepat: dorong koleksi dirty tiap 5 dtk sampai server mengonfirmasi (jaminan 100% tersimpan).
     if(!_flushTimer) _flushTimer=setInterval(()=>{ if(state.user) flushDirty(); },5000);
