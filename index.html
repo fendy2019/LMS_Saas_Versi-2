@@ -318,7 +318,7 @@ const authToken = {
  * Ganti GAS_URL dengan URL Web App deploy GAS Anda.
  * apiFetch(action,payload) = async wrapper + retry exponential backoff (max 3x)
  * ============================================================ */
-const GAS_URL = "https://script.google.com/macros/s/AKfycbyojNHs1c5B5mYv3zzVhpl6rI9SfICe6bOLtQTpWvuKH2HrmO6vw0C7nvk5nzJ3OP1j/exec"; // <-- paste URL Web App GAS di sini
+const GAS_URL = "https://script.google.com/macros/s/AKfycbxaW9oOxLSdqDtxk0ETp2ITDz1nlec9DDrAuIZml8wCtlXWU_ZQ7JPL6dQcvu2T0EOC/exec"; // <-- paste URL Web App GAS di sini
 const HMAC_SECRET = "1"; // <-- samakan dengan Script Properties HMAC_SECRET di GAS
 const API_ENABLED = () => GAS_URL && !GAS_URL.includes('URL_DEPLOY_GAS_ANDA');
 
@@ -1402,7 +1402,7 @@ PAGES.courses = el => {
         const inst=ins.find(x=>x.id===c.instructorId);
         return `<tr>
           <td><div class="flex items-center gap-2"><div class="av">${c.emoji}</div><div><b>${esc(c.title)}</b><div class="muted text-sm">${c.level} · ${c.duration}j</div></div></div></td>
-          <td>${esc(cat?.name||'-')}</td>
+          <td>${cat?esc((cat.icon||'📁')+' '+cat.name):'<span class="muted">-</span>'}</td>
           <td>${esc(inst?.name||'-')}</td>
           <td><b>${fmtRp(c.price)}</b></td>
           <td>${c.enrolled}</td>
@@ -1430,32 +1430,52 @@ PAGES.courses = el => {
 function courseFormModal(id){
   const cats = DB.get('categories',[]);
   const ins = DB.get('instructors',[]);
-  const c = id?DB.get('courses',[]).find(x=>x.id===id):{title:'',categoryId:cats[0]?.id,instructorId:ins[0]?.id,price:0,emoji:'📘',description:'',status:'draft',level:'Pemula',duration:8,enrolled:0,rating:'5.0',modules:[]};
+  if(!cats.length){
+    toast('Buat minimal 1 kategori dulu di menu Kategori','warn');
+    state.route='categories'; render(); return;
+  }
+  const c = id?DB.get('courses',[]).find(x=>x.id===id):{title:'',categoryId:cats[0]?.id,instructorId:ins[0]?.id,price:0,emoji:(cats[0]?.icon||'📘'),description:'',status:'draft',level:'Pemula',duration:8,enrolled:0,rating:'5.0',modules:[]};
+  // Emoji kursus mengikuti ikon kategori yang dipilih (default), tetap bisa diganti manual.
+  const catIcon = (cid)=>{ const cc=cats.find(x=>x.id===cid); return cc?(cc.icon||'📁'):'📘'; };
   modal({
     title: id?'Edit Kursus':'Tambah Kursus', size:'lg',
     body:`<form id="cForm">
-      <div class="field"><label>Judul Kursus</label><input class="input" name="title" required value="${esc(c.title)}" /></div>
-      ${emojiField('emoji', c.emoji, 'Emoji / Ikon Kursus')}
+      <div class="field"><label for="cTitle">Judul Kursus</label><input id="cTitle" class="input" name="title" required value="${esc(c.title)}" autocomplete="off" /></div>
       <div class="grid-2">
-        <div class="field"><label>Kategori</label><select class="select" name="categoryId">${cats.map(x=>`<option value="${x.id}" ${x.id===c.categoryId?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div>
-        <div class="field"><label>Instruktur</label><select class="select" name="instructorId">${ins.map(x=>`<option value="${x.id}" ${x.id===c.instructorId?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div>
+        <div class="field"><label for="cCat">Kategori</label><select id="cCat" class="select" name="categoryId">${cats.map(x=>`<option value="${x.id}" ${x.id===c.categoryId?'selected':''}>${esc((x.icon||'📁')+' '+x.name)}</option>`).join('')}</select></div>
+        <div class="field"><label for="cIns">Instruktur</label><select id="cIns" class="select" name="instructorId">${ins.length?ins.map(x=>`<option value="${x.id}" ${x.id===c.instructorId?'selected':''}>${esc(x.name)}</option>`).join(''):'<option value="">(belum ada instruktur)</option>'}</select></div>
       </div>
+      ${emojiField('emoji', c.emoji, 'Emoji / Ikon Kursus (default mengikuti kategori)')}
       <div class="grid-3">
-        <div class="field"><label>Harga (Rp)</label><input class="input" type="number" name="price" min="0" value="${c.price}" required /></div>
-        <div class="field"><label>Level</label><select class="select" name="level"><option ${c.level==='Pemula'?'selected':''}>Pemula</option><option ${c.level==='Menengah'?'selected':''}>Menengah</option><option ${c.level==='Mahir'?'selected':''}>Mahir</option></select></div>
-        <div class="field"><label>Durasi (jam)</label><input class="input" type="number" name="duration" min="1" value="${c.duration}" /></div>
+        <div class="field"><label for="cPrice">Harga (Rp)</label><input id="cPrice" class="input" type="number" name="price" min="0" value="${c.price}" required autocomplete="off" /></div>
+        <div class="field"><label for="cLevel">Level</label><select id="cLevel" class="select" name="level"><option ${c.level==='Pemula'?'selected':''}>Pemula</option><option ${c.level==='Menengah'?'selected':''}>Menengah</option><option ${c.level==='Mahir'?'selected':''}>Mahir</option></select></div>
+        <div class="field"><label for="cDur">Durasi (jam)</label><input id="cDur" class="input" type="number" name="duration" min="1" value="${c.duration}" autocomplete="off" /></div>
       </div>
-      <div class="field"><label>Deskripsi</label><textarea class="textarea" name="description" required>${esc(c.description)}</textarea></div>
-      <div class="field"><label>Status</label><select class="select" name="status"><option value="draft" ${c.status==='draft'?'selected':''}>Draft</option><option value="published" ${c.status==='published'?'selected':''}>Publish</option></select></div>
+      <div class="field"><label for="cDesc">Deskripsi</label><textarea id="cDesc" class="textarea" name="description" required>${esc(c.description)}</textarea></div>
+      <div class="field"><label for="cStatus">Status</label><select id="cStatus" class="select" name="status"><option value="draft" ${c.status==='draft'?'selected':''}>Draft</option><option value="published" ${c.status==='published'?'selected':''}>Publish</option></select></div>
     </form>`,
     foot:`<button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn primary" id="saveC">Simpan</button>`
   });
+  // Saat kategori diganti, emoji kursus otomatis mengikuti ikon kategori tsb
+  // (kecuali admin sudah mengetik emoji kustom yang berbeda dari ikon kategori sebelumnya).
+  const catSel = $('#cCat'); const emojiInput = document.querySelector('#cForm [name="emoji"]');
+  let lastCatIcon = catIcon(c.categoryId);
+  if(catSel) catSel.onchange = ()=>{
+    const newIcon = catIcon(catSel.value);
+    // ikuti kategori bila field emoji masih sama dgn ikon kategori sebelumnya atau kosong
+    if(emojiInput && (!emojiInput.value || emojiInput.value===lastCatIcon)){
+      emojiInput.value = newIcon;
+    }
+    lastCatIcon = newIcon;
+  };
   $('#saveC').onclick=async ()=>{
     const f = $('#cForm');
     if(!f.title.value.trim() || !f.description.value.trim()){ toast('Lengkapi data','danger'); return; }
     const courses = DB.get('courses',[]);
     const data = {
-      title:f.title.value.trim(),emoji:f.emoji.value||'📘',categoryId:f.categoryId.value,instructorId:f.instructorId.value,
+      title:f.title.value.trim(),
+      emoji:f.emoji.value || catIcon(f.categoryId.value) || '📘',   // fallback ke ikon kategori
+      categoryId:f.categoryId.value,instructorId:f.instructorId.value,
       price:+f.price.value,level:f.level.value,duration:+f.duration.value,description:f.description.value.trim(),status:f.status.value,
     };
     if(id){
@@ -1463,6 +1483,7 @@ function courseFormModal(id){
     } else {
       courses.unshift({id:uid('k'),...data,enrolled:0,rating:'5.0',createdAt:Date.now(),modules:[]});
     }
+    const btn=$('#saveC'); if(btn) btn.disabled=true;
     DB.set('courses',courses); await saveCollection('courses',courses); closeModal(); toast('Tersimpan','success'); renderPage();
   };
 }
@@ -3815,7 +3836,31 @@ window.openModule = (cid,mid)=>{
   } else if(m.type==='quiz'){
     body = renderQuiz(cid,m);
   } else {
-    body = `<div class="card"><b>📝 Assignment</b><p class="mt-2">${esc(m.content||'')}</p><div class="field mt-2"><label>Jawaban Anda</label><textarea class="textarea" id="ans" placeholder="Tulis atau paste link Google Drive..."></textarea></div><button class="btn primary" onclick="if(!$('#ans').value.trim()){toast('Jawaban wajib','danger');return;}markComplete('${cid}','${mid}');toast('Assignment dikumpulkan','success');closeModal();">Kumpulkan</button></div>`;
+    // ASSIGNMENT — input menyesuaikan tipe submission yang diatur instruktur (file/text/link)
+    const submitType = m.submitType || 'file';
+    const stLabel = submitType==='file'?'📎 Upload File':submitType==='link'?'🔗 Kirim Link':'✍️ Jawaban Teks';
+    const deadlineHtml = m.deadline ? `<div class="muted text-sm">⏰ Deadline: <b>${esc(m.deadline)}</b></div>` : '';
+    let inputHtml='';
+    if(submitType==='file'){
+      inputHtml = `<div class="field"><label>Upload File Jawaban</label>
+        <input type="file" class="input" id="asgFile" accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.zip,.rar,.txt,image/*"/>
+        <div class="muted text-sm" style="margin-top:4px">${API_ENABLED()?'File diunggah ke Google Drive.':'⚠️ GAS_URL belum diset — file disimpan lokal.'}</div></div>`;
+    } else if(submitType==='link'){
+      inputHtml = `<div class="field"><label>Link Jawaban (Google Drive, GitHub, dll)</label>
+        <input type="url" class="input" id="asgLink" placeholder="https://..." autocomplete="off"/></div>`;
+    } else {
+      inputHtml = `<div class="field"><label>Jawaban Anda</label>
+        <textarea class="textarea" id="asgText" rows="6" placeholder="Tulis jawaban Anda di sini..."></textarea></div>`;
+    }
+    body = `<div class="card">
+      <b>📝 Assignment: ${esc(m.title)}</b>
+      <div class="muted text-sm" style="margin-top:2px">Tipe submission: <b>${stLabel}</b>${m.maxScore?` · Max nilai: ${m.maxScore}`:''}</div>
+      ${deadlineHtml}
+      ${m.content?`<p class="mt-2" style="white-space:pre-wrap">${esc(m.content)}</p>`:''}
+      <div id="asgStatus" class="text-sm" style="margin-top:8px"></div>
+      ${inputHtml}
+      <button class="btn primary" id="asgSubmit">Kumpulkan Tugas</button>
+    </div>`;
   }
   modal({title:`${m.type.toUpperCase()}: ${m.title}${done?' ✓':''}`, size:'xl',
     body,
@@ -3826,6 +3871,44 @@ window.openModule = (cid,mid)=>{
   // Tear down guard when modal closes
   const mo = new MutationObserver(()=>{ if(!document.querySelector('.modal-backdrop')){ _viewerGuard(false); mo.disconnect(); } });
   mo.observe(document.body,{childList:true,subtree:false});
+
+  // Assignment: tangani submit sesuai tipe (file/text/link)
+  if(m.type!=='video' && m.type!=='pdf' && m.type!=='audio' && m.type!=='quiz'){
+    const sbtn = $('#asgSubmit');
+    if(sbtn) sbtn.onclick = async ()=>{
+      const submitType = m.submitType || 'file';
+      let content = {};
+      if(submitType==='file'){
+        const file = $('#asgFile') && $('#asgFile').files[0];
+        if(!file){ toast('Pilih file dulu','danger'); return; }
+        sbtn.disabled=true; $('#asgStatus').innerHTML='<span style="color:var(--info)">⏳ Mengunggah file...</span>';
+        const up = await uploadToDrive(file, {title:'Tugas: '+m.title});
+        if(!up.ok){ sbtn.disabled=false; $('#asgStatus').innerHTML='<span style="color:var(--danger)">✕ '+esc(up.msg||'Gagal upload')+'</span>'; return; }
+        content = { fileId: up.data.fileId, url: up.data.viewUrl||up.data.url };
+      } else if(submitType==='link'){
+        const url = $('#asgLink') ? $('#asgLink').value.trim() : '';
+        if(!/^https?:\/\//.test(url)){ toast('Masukkan link yang valid (http/https)','danger'); return; }
+        content = { url };
+      } else {
+        const text = $('#asgText') ? $('#asgText').value.trim() : '';
+        if(!text){ toast('Jawaban wajib diisi','danger'); return; }
+        content = { text };
+      }
+      sbtn.disabled=true;
+      if(API_ENABLED()){
+        const r = await apiFetch('submitAssignment', { courseId:cid, moduleId:mid, content });
+        if(!r || !r.ok){ sbtn.disabled=false; $('#asgStatus').innerHTML='<span style="color:var(--danger)">✕ '+esc((r&&r.msg)||'Gagal mengirim')+'</span>'; return; }
+      } else {
+        // mode offline: catat submission lokal
+        const subs=DB.get('submissions',[]);
+        subs.unshift({ id:uid('sub'), userId:state.user.id, userName:state.user.name, courseId:cid, moduleId:mid, type:'assignment', submitType, ...content, status:'submitted', submittedAt:Date.now() });
+        DB.set('submissions',subs);
+      }
+      await markComplete(cid, mid, true);
+      toast('Tugas berhasil dikumpulkan','success');
+      closeModal();
+    };
+  }
 };
 
 /* Tentukan cara menampilkan video dari modul:
