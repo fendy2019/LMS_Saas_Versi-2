@@ -278,6 +278,11 @@ canvas.chart{width:100%;max-height:280px}
 .search-rel{position:relative}
 .pm-opt{transition:all .15s}
 .pm-selected{border-color:var(--primary)!important;background:var(--primary-soft)!important;box-shadow:0 0 0 2px var(--primary) inset}
+.media-mask{background:transparent;cursor:default}
+.media-frame:fullscreen{width:100vw;height:100vh;border-radius:0;background:#000}
+.media-frame:-webkit-full-screen{width:100vw;height:100vh;border-radius:0;background:#000}
+.media-frame:fullscreen iframe,.media-frame:-webkit-full-screen iframe{width:100%;height:100%}
+.media-frame:fullscreen video,.media-frame:-webkit-full-screen video{width:100%;height:100%;max-height:100vh}
 </style>
 </head>
 <body>
@@ -3789,12 +3794,19 @@ window.openModule = (cid,mid)=>{
         <p class="mt-2" style="${noSel}">${esc(m.content||'')}</p>`;
     } else if(vsrc.kind==='drive' || vsrc.kind==='embed'){
       // Google Drive / YouTube / Vimeo → iframe embed
-      body = `<div style="position:relative;${noSel}" oncontextmenu="return false">
-        <div style="position:relative;width:100%;height:70vh;background:#000;border-radius:10px;overflow:hidden">
-          <iframe src="${esc(vsrc.src)}" style="width:100%;height:100%;border:0" allow="autoplay; fullscreen; encrypted-media" allowfullscreen sandbox="allow-scripts allow-same-origin allow-popups allow-presentation"></iframe>
+      // Tutup hotspot tombol "pop-out / buka di Drive" (kanan atas) dan "YouTube" (kanan bawah)
+      // dengan lapisan transparan agar klik tidak keluar dari iframe (nonton hanya di dalam).
+      const fsId = 'fs_'+mid;
+      body = `<div style="position:relative;${noSel}" oncontextmenu="return false" id="${fsId}">
+        <div class="media-frame" style="position:relative;width:100%;height:70vh;background:#000;border-radius:10px;overflow:hidden">
+          <iframe src="${esc(vsrc.src)}" style="width:100%;height:100%;border:0" allow="autoplay; fullscreen; encrypted-media" allowfullscreen sandbox="allow-scripts allow-same-origin allow-presentation"></iframe>
           <div style="${wmStyle}">${wmText}</div>
+          <!-- masker hotspot: kanan-atas (pop-out Drive) & kanan-bawah (logo YouTube) -->
+          <div class="media-mask" style="position:absolute;top:0;right:0;width:80px;height:60px;z-index:5"></div>
+          <div class="media-mask" style="position:absolute;bottom:0;right:0;width:110px;height:52px;z-index:5"></div>
+          <button type="button" class="btn sm" onclick="toggleMediaFullscreen('${fsId}')" title="Layar penuh" style="position:absolute;bottom:10px;left:10px;z-index:6;background:rgba(0,0,0,.6);color:#fff;border:0">⛶ Layar Penuh</button>
         </div>
-        <div class="muted text-sm mt-1">🔒 Video hanya untuk ditonton. Download dinonaktifkan.</div>
+        <div class="muted text-sm mt-1">🔒 Video hanya untuk ditonton di dalam pemutar ini.</div>
         <p class="mt-2" style="${noSel}">${esc(m.content||'')}</p>`;
     } else {
       // Tidak ada sumber video yang diset di modul
@@ -3806,15 +3818,18 @@ window.openModule = (cid,mid)=>{
       </div>`;
     }
   } else if(m.type==='pdf'){
-    // Reading-view PDF: render via Google Drive preview iframe when fileId/url is available, otherwise placeholder
+    // Reading-view dokumen (PDF/Word/Slide/dll): render via Google Drive preview iframe.
     const driveId = m.fileId || (m.url && (m.url.match(/\/d\/([^/]+)/)?.[1] || m.url.match(/[?&]id=([^&]+)/)?.[1])) || '';
     const previewUrl = driveId ? `https://drive.google.com/file/d/${driveId}/preview` : (m.url||'');
-    body = `<div style="position:relative;${noSel}" oncontextmenu="return false">
+    const fsId = 'fs_'+mid;
+    body = `<div style="position:relative;${noSel}" oncontextmenu="return false" id="${fsId}">
       ${previewUrl?`
-        <div style="position:relative;width:100%;height:70vh;background:#1a1a1a;border-radius:10px;overflow:hidden">
-          <iframe src="${esc(previewUrl)}" style="width:100%;height:100%;border:0" allow="autoplay" sandbox="allow-scripts allow-same-origin allow-popups"></iframe>
+        <div class="media-frame" style="position:relative;width:100%;height:70vh;background:#1a1a1a;border-radius:10px;overflow:hidden">
+          <iframe src="${esc(previewUrl)}" style="width:100%;height:100%;border:0" allow="autoplay" sandbox="allow-scripts allow-same-origin"></iframe>
           <div style="${wmStyle}">${wmText}</div>
-          <div style="position:absolute;top:0;right:0;width:48px;height:48px;background:#1a1a1a" title="Reading-only"></div>
+          <!-- tutup hotspot tombol pop-out/buka di Drive (kanan atas) -->
+          <div class="media-mask" style="position:absolute;top:0;right:0;width:80px;height:60px;z-index:5"></div>
+          <button type="button" class="btn sm" onclick="toggleMediaFullscreen('${fsId}')" title="Layar penuh" style="position:absolute;bottom:10px;left:10px;z-index:6;background:rgba(0,0,0,.6);color:#fff;border:0">⛶ Layar Penuh</button>
         </div>
       `:`
         <div class="card" style="background:#f3f4f6;color:#000;text-align:center;padding:60px 20px;position:relative;overflow:hidden">
@@ -3824,7 +3839,7 @@ window.openModule = (cid,mid)=>{
           <div style="${wmStyle};color:rgba(0,0,0,.08)">${wmText}</div>
         </div>
       `}
-      <div class="muted text-sm mt-1">🔒 Reading-view: download, print, dan klik kanan dinonaktifkan.</div>
+      <div class="muted text-sm mt-1">🔒 Reading-view: download, print, dan klik kanan dinonaktifkan. Gunakan ⛶ untuk layar penuh.</div>
     </div>`;
   } else if(m.type==='audio'){
     body = `<div class="card" style="${noSel};position:relative" oncontextmenu="return false">
@@ -3927,12 +3942,12 @@ function videoEmbed_(m){
     || (raw.match(/[?&]id=([A-Za-z0-9_\-]+)/)||[])[1]
     || '';
   if(driveId) return { kind:'drive', src:'https://drive.google.com/file/d/'+driveId+'/preview' };
-  // 2) YouTube
+  // 2) YouTube → nocookie + modestbranding + rel=0 (kurangi tautan keluar/branding)
   let yt = (raw.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([A-Za-z0-9_\-]{6,})/)||[])[1];
-  if(yt) return { kind:'embed', src:'https://www.youtube.com/embed/'+yt };
+  if(yt) return { kind:'embed', src:'https://www.youtube-nocookie.com/embed/'+yt+'?modestbranding=1&rel=0&playsinline=1&iv_load_policy=3' };
   // 3) Vimeo
   const vm = (raw.match(/vimeo\.com\/(?:video\/)?(\d+)/)||[])[1];
-  if(vm) return { kind:'embed', src:'https://player.vimeo.com/video/'+vm };
+  if(vm) return { kind:'embed', src:'https://player.vimeo.com/video/'+vm+'?title=0&byline=0&portrait=0' };
   // 4) File video langsung
   if(raw && /\.(mp4|webm|ogg|ogv|mov|m4v)(\?|#|$)/i.test(raw)) return { kind:'file', src:raw };
   // 5) URL lain yang ada → coba sebagai iframe embed umum
@@ -3940,6 +3955,21 @@ function videoEmbed_(m){
   return { kind:'none', src:'' };
 }
 window.videoEmbed_ = videoEmbed_;
+
+/* Toggle layar penuh untuk wadah media (video/PDF/dok). Memakai Fullscreen API
+ * pada elemen pembungkus sehingga iframe ikut memenuhi layar. */
+window.toggleMediaFullscreen = function(id){
+  const elx = document.getElementById(id);
+  if(!elx) return;
+  const frame = elx.querySelector('.media-frame') || elx;
+  try{
+    if(!document.fullscreenElement){
+      (frame.requestFullscreen||frame.webkitRequestFullscreen||frame.msRequestFullscreen||function(){}).call(frame);
+    } else {
+      (document.exitFullscreen||document.webkitExitFullscreen||document.msExitFullscreen||function(){}).call(document);
+    }
+  }catch(e){ /* abaikan bila ditolak browser */ }
+};
 window.markComplete = async (cid,mid,silent)=>{
   // KEAMANAN: saat backend aktif, SERVER menyimpan & menghitung progress (cek enrolment).
   if (API_ENABLED()){
